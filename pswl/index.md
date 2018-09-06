@@ -1,6 +1,6 @@
-# Puget Sound Water Levels
+# Puget Sound Water Level Monitoring
 
-**[Current version of potential sites](20180906135725-63114-map.html)**
+**[Latest map of potential deployment sites](20180906135725-63114-map.html)**
 
 * Wave icons: places with person/agency willing to let us install 
 * Yellow pins: no contact/exact location established yet
