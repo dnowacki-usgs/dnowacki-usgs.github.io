@@ -1,6 +1,6 @@
 # Puget Sound Water Level Monitoring
 
-**[Latest map of potential deployment sites](20181001140959-63114-map.html)**
+**[Latest map of potential deployment sites](20181002151927-63114-map.html)**
 
 * ![Wave icons](http://maps.google.com/mapfiles/kml/shapes/water.png): locations with person/agency willing to let us install 
 * ![Yellow pins](http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png): no contact/exact location established yet
@@ -10,6 +10,7 @@
 
 ## Old versions
 
+* [Version 2018-10-01](20181001140959-63114-map.html)
 * [Version 2018-09-13](20180913121104-63114-map.html)
 * [Version 2018-09-06](20180906135725-63114-map.html)
 * [Version 2018-08-10](20180810154917-15070-map.html)
