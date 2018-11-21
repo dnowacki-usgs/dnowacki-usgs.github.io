@@ -1,8 +1,10 @@
 # Puget Sound Water Level Monitoring
 
+[Real-time data](realtime.html)
+
 **[Latest map of potential deployment sites](20181002151927-63114-map.html)**
 
-* ![Wave icons](http://maps.google.com/mapfiles/kml/shapes/water.png): locations with person/agency willing to let us install 
+* ![Wave icons](http://maps.google.com/mapfiles/kml/shapes/water.png): locations with person/agency willing to let us install
 * ![Yellow pins](http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png): no contact/exact location established yet
 * ![Bullseyes](http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png): existing NOAA gauges
 
