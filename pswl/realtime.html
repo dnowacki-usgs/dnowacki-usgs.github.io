@@ -9,12 +9,12 @@
     <title>Puget Sound Water Level Monitoring</title>
   </head>
   <body>
-    <h1>Puget Sound Water Level Real-Time Data</h1>
+    <h1>Puget Sound Real-Time Water-Level Data</h1>
     <p>Provisional data subject to revision</p>
     <div id="chart"></div>
     <p>The chart above shows the most recent 7 days of data at Oak Harbor. Use mouse scroll wheel to zoom</p>
     <script>
-    d3.json("https://gamone.whoi.edu/erddap/tabledap/dan_test.json?time%2Cpressure&time%3Enow-7days", function(data) {
+    d3.json("https://gamone.whoi.edu/erddap/tabledap/pswl-oak.json?time%2Cwaterlevel&time%3Enow-7days", function(data) {
       // console.log(data.table.rows);
       times = [];
       vals = [];
@@ -22,10 +22,30 @@
       vals.push('oakharbor')
       data.table.rows.forEach(function(d, i) {
         times.push(d[0]);
-        vals.push(0.3048*d[1]-1.775);
+        vals.push(d[1]);
       });
       // console.log(times)
       // console.log(vals)
+      // console.log(times[1].substring(0,10) + 'T00:00:00Z')
+      startDate = new Date(times[1].substring(0,10) + 'T00:00:00Z')
+      endDate = new Date(times.slice(-1)[0].substring(0,10) + 'T00:00:00Z')
+      startDate.setDate(startDate.getDate() - 1) // add days to the ends so we have full coverage
+      endDate.setDate(endDate.getDate() + 1)
+      var getDateArray = function(start, end) {
+        var
+          arr = new Array(),
+          dt = new Date(start);
+        while (dt <= end) {
+          theDate = new Date(dt)
+          theMonth = theDate.getMonth() + 1
+          theDay = theDate.getDate()
+          arr.push(theDate.getFullYear() + '-' + theMonth + '-' + theDay + 'T00:00:00Z');
+          dt.setDate(dt.getDate() + 1);
+        }
+        return arr;
+      }
+      var dateArr = getDateArray(startDate, endDate);
+      // console.log(dateArr)
       var chart = c3.generate({
         data: {
           x: 'time',
@@ -35,7 +55,7 @@
         axis: {
           x: {
             type: 'timeseries',
-            tick: {format: '%Y-%m-%d %H:%M', count: 20},
+            tick: {values: dateArr, format: '%Y-%m-%d %H:%M'},
             label: {text: 'Time [UTC]', position: 'outer-middle'}
           },
           y: {label: {text: 'Water level [m NAVD88]', position: 'outer-middle'}}
