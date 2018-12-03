@@ -11,63 +11,98 @@
   <body>
     <h1>Puget Sound Real-Time Water-Level Data</h1>
     <p>Provisional data subject to revision</p>
-    <div id="chart"></div>
-    <p>The chart above shows the most recent 7 days of data at Oak Harbor. Use mouse scroll wheel to zoom</p>
+    <h2>All Sites</h2>
+    <div id="all"></div>
+    <p>The chart above shows the most recent 7 days of data at Oak Harbor, Olympia, and Hoodsport. Use mouse scroll wheel to zoom and drag to pan.</p>
+    <p>These data are available in a variety of formats via ERDDAP:
+    <ul>
+      <li><a href="https://gamone.whoi.edu/erddap/tabledap/pswl-oak.html">Oak Harbor</a></li>
+      <li><a href="https://gamone.whoi.edu/erddap/tabledap/pswl-oly.html">Olympia</a></li>
+      <li><a href="https://gamone.whoi.edu/erddap/tabledap/pswl-hoo.html">Hoodsport</a></li>
+    </ul>
+    </p>
     <script>
-    d3.json("https://gamone.whoi.edu/erddap/tabledap/pswl-oak.json?time%2Cwaterlevel&time%3Enow-7days", function(data) {
-      // console.log(data.table.rows);
+    var getDateArray = function(start, end) {
+      var
+        arr = new Array(),
+        dt = new Date(start);
+      while (dt <= end) {
+        theDate = new Date(dt)
+        theMonth = theDate.getMonth() + 1
+        theDay = theDate.getDate()
+        arr.push(theDate.getFullYear() + '-' + theMonth + '-' + theDay + 'T00:00:00Z');
+        dt.setDate(dt.getDate() + 1);
+      }
+      return arr;
+    }
+
+    var getTimesVals = function(data, site) {
       times = [];
       vals = [];
-      times.push('time');
-      vals.push('oakharbor')
+      times.push('time' + site);
+      vals.push(site)
       data.table.rows.forEach(function(d, i) {
         times.push(d[0]);
         vals.push(d[1]);
       });
-      // console.log(times)
-      // console.log(vals)
-      // console.log(times[1].substring(0,10) + 'T00:00:00Z')
-      startDate = new Date(times[1].substring(0,10) + 'T00:00:00Z')
-      endDate = new Date(times.slice(-1)[0].substring(0,10) + 'T00:00:00Z')
+      return {times: times, vals: vals};
+    }
+
+    var getStartEndDate = function(theData) {
+      startDate = new Date(theData.times[1].substring(0,10) + 'T00:00:00Z')
+      endDate = new Date(theData.times.slice(-1)[0].substring(0,10) + 'T00:00:00Z')
       startDate.setDate(startDate.getDate() - 1) // add days to the ends so we have full coverage
       endDate.setDate(endDate.getDate() + 1)
-      var getDateArray = function(start, end) {
-        var
-          arr = new Array(),
-          dt = new Date(start);
-        while (dt <= end) {
-          theDate = new Date(dt)
-          theMonth = theDate.getMonth() + 1
-          theDay = theDate.getDate()
-          arr.push(theDate.getFullYear() + '-' + theMonth + '-' + theDay + 'T00:00:00Z');
-          dt.setDate(dt.getDate() + 1);
-        }
-        return arr;
+
+      return {startDate: startDate, endDate: endDate};
+    }
+    </script>
+    <script>
+    d3.queue()
+    .defer(d3.json, "https://gamone.whoi.edu/erddap/tabledap/pswl-oak.json?time%2Cwaterlevel&time%3Enow-7days")
+    .defer(d3.json, "https://gamone.whoi.edu/erddap/tabledap/pswl-oly.json?time%2Cwaterlevel&time%3Enow-7days")
+    .defer(d3.json, "https://gamone.whoi.edu/erddap/tabledap/pswl-hoo.json?time%2Cwaterlevel&time%3Enow-7days")
+    .await(function(error, oakjson, olyjson, hoojson) {
+      if (error) {
+          console.error('Oh dear, something went wrong: ' + error);
       }
-      var dateArr = getDateArray(startDate, endDate);
-      // console.log(dateArr)
-      var chart = c3.generate({
-        data: {
-          x: 'time',
-          xFormat: '%Y-%m-%dT%H:%M:%SZ',
-          columns: [times, vals],
-        },
-        axis: {
-          x: {
-            type: 'timeseries',
-            tick: {values: dateArr, format: '%Y-%m-%d %H:%M'},
-            label: {text: 'Time [UTC]', position: 'outer-middle'}
+      else {
+        oakData = getTimesVals(oakjson, 'oakharbor');
+        oakStartEndDate = getStartEndDate(oakData);
+        var oakDateArr = getDateArray(oakStartEndDate.startDate, oakStartEndDate.endDate);
+        olyData = getTimesVals(olyjson, 'olympia');
+        olyStartEndDate = getStartEndDate(olyData);
+        hooData = getTimesVals(hoojson, 'hoodsport');
+        hooStartEndDate = getStartEndDate(hooData);
+        var chart = c3.generate({
+          bindto: '#all',
+          data: {
+            xs: {
+              'oakharbor': 'timeoakharbor',
+              'olympia': 'timeolympia',
+              'hoodsport': 'timehoodsport'
+            },
+            // x: 'time',
+            xFormat: '%Y-%m-%dT%H:%M:%SZ',
+            columns: [oakData.times, oakData.vals, olyData.times, olyData.vals, hooData.times, hooData.vals],
           },
-          y: {label: {text: 'Water level [m NAVD88]', position: 'outer-middle'}}
-        },
-        zoom: {enabled: true},
-        point: {show: false},
-        tooltip: {
-          format: {
-            value: d3.format(".3f")
+          axis: {
+            x: {
+              type: 'timeseries',
+              tick: {values: oakDateArr, format: '%Y-%m-%d %H:%M'},
+              label: {text: 'Time [UTC]', position: 'outer-middle'}
+            },
+            y: {label: {text: 'Water level [m NAVD88]', position: 'outer-middle'}}
           },
-        }
-      });
+          zoom: {enabled: true},
+          point: {show: false},
+          tooltip: {
+            format: {
+              value: d3.format(".3f")
+            },
+          }
+        });
+      }
     });
     </script>
   </body>
