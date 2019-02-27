@@ -5,9 +5,9 @@
 		<title>USGS Puget Sound Real-time Water-level Data</title>
 		<link href="../styles/common.css" type="text/css" rel="stylesheet">
 		<link href="../styles/walrus.css" type="text/css" rel="stylesheet">
-		<script src="https://d3js.org/d3.v4.min.js"></script>
-		<link href="https://cdnjs.cloudflare.com/ajax/libs/c3/0.6.8/c3.min.css" rel="stylesheet">
-		<script src="https://cdnjs.cloudflare.com/ajax/libs/c3/0.6.8/c3.min.js"></script>
+		<script src="https://d3js.org/d3.v5.min.js"></script>
+		<link href="https://cdnjs.cloudflare.com/ajax/libs/c3/0.6.12/c3.min.css" rel="stylesheet">
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/c3/0.6.12/c3.min.js"></script>
 		<style type="text/css">
 /*  Override default C3 styling */
 
@@ -41,101 +41,117 @@
 		</div>
 		<h1>Puget Sound Real-Time Water-Level Data</h1>
 			<h3><a name="content" id="content"></a>Provisional data subject to revision</h3>
-			<h2>All Sites</h2>
+			<h2>Water Level</h2>
 			<div id="all">
 			</div>
-			<p>The chart above shows the most recent 7 days of data at Oak Harbor, Olympia, and Hoodsport. Use mouse scroll wheel to zoom and drag to pan.</p>
+			<p>The chart above shows the most recent 7 days of data at all PSWL sites with available data. Use mouse scroll wheel to zoom and drag to pan.</p>
+			<h2>Data Access</h2>
 			<p>These data are available via THREDDS and ERDDAP:
 			<ul>
-				<li>Oak Harbor: &nbsp; <a href="http://geoport.whoi.edu/thredds/dodsC/sand/usgs/users/dnowacki/pswl/catalog.html?dataset=sand/usgs/users/dnowacki/pswl/oak.nc">THREDDS</a> &nbsp; <a href="https://gamone.whoi.edu/erddap/tabledap/pswl-oak.html">ERDDAP</a></li>
-				<li>Olympia: &nbsp; <a href="http://geoport.whoi.edu/thredds/dodsC/sand/usgs/users/dnowacki/pswl/catalog.html?dataset=sand/usgs/users/dnowacki/pswl/oly.nc">THREDDS</a> &nbsp; <a href="https://gamone.whoi.edu/erddap/tabledap/pswl-oly.html">ERDDAP</a></li>
-				<li>Hoodsport: &nbsp; <a href="http://geoport.whoi.edu/thredds/dodsC/sand/usgs/users/dnowacki/pswl/catalog.html?dataset=sand/usgs/users/dnowacki/pswl/hoo.nc">THREDDS</a> &nbsp; <a href="https://gamone.whoi.edu/erddap/tabledap/pswl-hoo.html">ERDDAP</a></li>
+				<li><a href="http://geoport.whoi.edu/thredds/dodsC/sand/usgs/users/dnowacki/pswl/catalog.html">THREDDS listing for all PSWL sites</a></li>
+				<li><a href="https://gamone.whoi.edu/erddap/search/advanced.html?page=1&itemsPerPage=1000&searchFor=pswl">ERDDAP listing for all PSWL sites</a></li>
 			</ul>
 			</p>
 			<script>
-    var getDateArray = function(start, end) {
-      var
-        arr = new Array(),
-        dt = new Date(start);
-      while (dt <= end) {
-        theDate = new Date(dt)
-        theMonth = theDate.getMonth() + 1
-        theDay = theDate.getDate()
-        arr.push(theDate.getFullYear() + '-' + theMonth + '-' + theDay + 'T00:00:00Z');
-        dt.setDate(dt.getDate() + 1);
-      }
-      return arr;
-    }
+			var siteData = {}
+			var startEndDate = {}
+			var sites = ['bel', 'oak', 'edm', 'lof', 'hoo', 'ste', 'oly'];
+			var longSites = {'oak': 'Oak Harbor',
+											 'edm': 'Edmonds',
+											 'lof': 'Lofall',
+											 'ste': 'Steilacoom',
+											 'bel': 'Bellingham',
+											 'hoo': 'Hoodsport',
+											 'oly': 'Olympia'}
+			var timeSites = {'Oak Harbor': 'timeoak',
+											 'Edmonds': 'timeedm',
+											 'Lofall': 'timelof',
+											 'Steilacoom': 'timeste',
+											 'Bellingham': 'timebel',
+											 'Hoodsport': 'timehoo',
+											 'Olympia': 'timeoly'}
+			var xs = []
+			waterlevel = []
+			async function f(){
+				// thank you https://javascript.info/async-await
+				for(i=0; i<sites.length; i++){
+					try {
+						q = await d3.json("https://gamone.whoi.edu/erddap/tabledap/pswl-" + sites[i] + ".json?time%2Cwaterlevel&time%3Enow-7days")
+					} catch(err) {
+						continue // ignore sites if there are no valid data
+					}
+					siteData[sites[i]] = getTimesVals(q, sites[i])
+					startEndDate[sites[i]] = getStartEndDate(siteData[sites[i]]);
+					dateArr = getDateArray(startEndDate[sites[i]].startDate, startEndDate[sites[i]].endDate, 1);
+					waterlevel.push(siteData[sites[i]].times, siteData[sites[i]].vals)
+				}
 
-    var getTimesVals = function(data, site) {
-      times = [];
-      vals = [];
-      times.push('time' + site);
-      vals.push(site)
-      data.table.rows.forEach(function(d, i) {
-        times.push(d[0]);
-        vals.push(d[1]);
-      });
-      return {times: times, vals: vals};
-    }
+				var chart = c3.generate({
+					bindto: '#all',
+					data: {
+						xs: timeSites,
+						// x: 'time',
+						xFormat: '%Y-%m-%dT%H:%M:%SZ',
+						columns: waterlevel, //[siteData[sites[0]].times, siteData[sites[0]].vals, siteData[sites[1]].times, siteData[sites[1]].vals, siteData[sites[2]].times, siteData[sites[2]].vals],
+					},
+					axis: {
+						x: {
+							type: 'timeseries',
+							tick: {values: dateArr, format: '%Y-%m-%d %H:%M'},
+							label: {text: 'Time [UTC]', position: 'outer-middle'}
+						},
+						y: {label: {text: 'Water level [m NAVD88]', position: 'outer-middle'}}
+					},
+					zoom: {enabled: true},
+					point: {show: false},
+					tooltip: {
+						format: {
+							value: d3.format(".3f")
+						},
+					}
+				});
 
-    var getStartEndDate = function(theData) {
-      startDate = new Date(theData.times[1].substring(0,10) + 'T00:00:00Z')
-      endDate = new Date(theData.times.slice(-1)[0].substring(0,10) + 'T00:00:00Z')
-      startDate.setDate(startDate.getDate() - 1) // add days to the ends so we have full coverage
-      endDate.setDate(endDate.getDate() + 1)
 
-      return {startDate: startDate, endDate: endDate};
-    }
-    </script>
-			<script>
-    d3.queue()
-    .defer(d3.json, "https://gamone.whoi.edu/erddap/tabledap/pswl-oak.json?time%2Cwaterlevel&time%3Enow-7days")
-    .defer(d3.json, "https://gamone.whoi.edu/erddap/tabledap/pswl-oly.json?time%2Cwaterlevel&time%3Enow-7days")
-    .defer(d3.json, "https://gamone.whoi.edu/erddap/tabledap/pswl-hoo.json?time%2Cwaterlevel&time%3Enow-7days")
-    .await(function(error, oakjson, olyjson, hoojson) {
-      if (error) {
-          console.error('Oh dear, something went wrong: ' + error);
-      }
-      else {
-        oakData = getTimesVals(oakjson, 'oakharbor');
-        oakStartEndDate = getStartEndDate(oakData);
-        var oakDateArr = getDateArray(oakStartEndDate.startDate, oakStartEndDate.endDate);
-        olyData = getTimesVals(olyjson, 'olympia');
-        olyStartEndDate = getStartEndDate(olyData);
-        hooData = getTimesVals(hoojson, 'hoodsport');
-        hooStartEndDate = getStartEndDate(hooData);
-        var chart = c3.generate({
-          bindto: '#all',
-          data: {
-            xs: {
-              'oakharbor': 'timeoakharbor',
-              'olympia': 'timeolympia',
-              'hoodsport': 'timehoodsport'
-            },
-            // x: 'time',
-            xFormat: '%Y-%m-%dT%H:%M:%SZ',
-            columns: [oakData.times, oakData.vals, olyData.times, olyData.vals, hooData.times, hooData.vals],
-          },
-          axis: {
-            x: {
-              type: 'timeseries',
-              tick: {values: oakDateArr, format: '%Y-%m-%d %H:%M'},
-              label: {text: 'Time [UTC]', position: 'outer-middle'}
-            },
-            y: {label: {text: 'Water level [m NAVD88]', position: 'outer-middle'}}
-          },
-          zoom: {enabled: true},
-          point: {show: false},
-          tooltip: {
-            format: {
-              value: d3.format(".3f")
-            },
-          }
-        });
-      }
-    });
-    </script>
+			}
+
+
+			f()
+
+			var getTimesVals = function(data, site) {
+				times = [];
+				vals = [];
+				times.push('time' + site);
+				vals.push(longSites[site])
+				data.table.rows.forEach(function(d, i) {
+					times.push(d[0]);
+					vals.push(d[1]);
+				});
+				return {times: times, vals: vals};
+			}
+
+			var getStartEndDate = function(theData) {
+				startDate = new Date(theData.times[1].substring(0,10) + 'T00:00:00Z')
+				endDate = new Date(theData.times.slice(-1)[0].substring(0,10) + 'T00:00:00Z')
+				// startDate.setDate(startDate.getDate() - 1) // add days to the ends so we have full coverage
+				// endDate.setDate(endDate.getDate() + 1)
+
+				return {startDate: startDate, endDate: endDate};
+			}
+
+			var getDateArray = function(start, end, inc) {
+				var
+					arr = new Array(),
+					dt = new Date(start);
+				while (dt <= end) {
+					theDate = new Date(dt)
+					theMonth = theDate.getMonth() + 1
+					theDay = theDate.getDate()
+					arr.push(theDate.getFullYear() + '-' + theMonth + '-' + theDay + 'T00:00:00Z');
+					dt.setDate(dt.getDate() + inc);
+				}
+				return arr;
+			}
+			</script>
 		<div id="usgsfooter">
 			<p id="usgsfooterbar"> <a href="http://www.usgs.gov/laws/accessibility.html" title="Accessibility Policy (Section 508)">Accessibility</a> <a href="http://www.usgs.gov/foia/" title="Freedom of Information Act">FOIA</a> <a href="http://www.usgs.gov/laws/privacy.html" title="Privacy policies of the U.S. Geological Survey.">Privacy</a> <a href="http://www.usgs.gov/laws/policies_notices.html" title="Policies and notices that govern information posted on USGS Web sites.">Policies and Notices</a> </p>
 			<p id="usgsfootertext"> <a href="http://www.doi.gov/">U.S. Department of the Interior</a> | <a href="http://www.usgs.gov/">U.S. Geological Survey</a><br />
