@@ -1,6 +1,6 @@
 # Puget Sound Water Level Monitoring
 
-[Real-time data](realtime.html)
+[Real-time data](https://walrus.wr.usgs.gov/pswl/realtime.html)
 
 **[Latest map of potential deployment sites](20181002151927-63114-map.html)**
 
