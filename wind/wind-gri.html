@@ -1,0 +1,143 @@
+<!doctype html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>Bellingham Wind Sensor</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+
+	<link rel="stylesheet" href="../dist/uPlot.min.css">
+	<style>
+	#heading {
+		text-align: center;
+		padding-bottom: 10px;
+	}
+
+	th canvas {
+		display: block;
+	}
+	</style>
+</head>
+<body>
+	<script src="../dist/uPlot.iife.js"></script>
+	<script>
+	fetch("https://geoport.usgs.esipfed.org/erddap/tabledap/wind-gri.json?time%2CDm%2CSm%2CPa%2CTa&time%3E=now-7days").then(r => r.json()).then(dataraw => {
+
+		times = [];
+		Dm = [];
+		Sm = [];
+		Pa = [];
+		Ta = [];
+		dataraw.table.rows.forEach(function(d, i) {
+			times.push(new Date(d[0]).getTime()/1000);
+			Dm.push(d[1]);
+			Sm.push(d[2]);
+			Pa.push(d[3]);
+			Ta.push(d[4]);
+		});
+		let data = [times, Sm, Dm];
+		let data2 = [times, Ta, Pa];
+		const cursorOpts = {
+			lock: true,
+			// focus: {
+			// prox: 16,
+			// },
+			sync: {
+				key: "moo",
+				setSeries: true,
+			},
+		};
+		let opts = {
+			title: "Wind speed and direction",
+			tzDate:  ts => uPlot.tzDate(new Date(ts * 1e3), 'Etc/UTC'),
+			id: "chart1",
+			class: "my-chart",
+			width: 1000,
+			height: 400,
+			cursor:cursorOpts,
+			series: [
+				{},
+				{
+					show: true,
+					// spanGaps: false,
+					label: "Wind speed",
+					value: (self, rawValue) => rawValue.toFixed(1) + " m s-1",
+					scale: "m s-1",
+					stroke: "blue",
+				},
+				{stroke: "red",
+				value: (self, rawValue) => rawValue + " °",
+				scale: "degrees",
+				label:'Wind direction'}
+			],
+			axes: [
+				{},
+				{
+					scale: "degrees",
+					label: "Wind direction",
+					range: [0, 360],
+					side: 1,
+					grid: {show: false}
+					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(1) + "%"),
+				},
+				{
+					scale: "m s-1",
+					label: "Wind speed",
+					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(2) + "MB"),
+					side: 3,
+					grid: {show: false},
+				},
+			],
+		};
+
+		let uplot = new uPlot(opts, data, document.body);
+
+		let opts2 = {
+			title: "Air temperature and pressure",
+			tzDate:  ts => uPlot.tzDate(new Date(ts * 1e3), 'Etc/UTC'),
+			id: "chart2",
+			class: "my-chart",
+			width: 1000,
+			height: 400,
+			cursor:cursorOpts,
+			series: [
+				{},
+				{
+					show: true,
+					// spanGaps: false,
+					label: "Air temperature",
+					value: (self, rawValue) => rawValue.toFixed(1) + " °C",
+					scale: "degree C",
+					stroke: "blue",
+				},
+				{stroke: "red",
+				value: (self, rawValue) => rawValue + " mbar",
+				scale: "mbar",
+				label:'Air pressure'}
+			],
+			axes: [
+				{},
+				{
+					scale: "° C",
+					label: "Air temperature",
+					// range: [0, 360],
+					side: 3,
+					grid: {show: false}
+					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(1) + "%"),
+				},
+				{
+					scale: "mbar",
+					label: "Air pressure",
+					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(2) + "MB"),
+					side: 1,
+					grid: {show: false},
+				},
+			],
+		};
+
+		let uplot2 = new uPlot(opts2, data2, document.body);
+	});
+	</script>
+	<p>Provisional data subject to revision</p>
+	<p>All times are in UTC</p>
+</body>
+</html>
