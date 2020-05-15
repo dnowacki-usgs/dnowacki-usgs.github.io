@@ -673,6 +673,7 @@ const cursorOpts = {
 		setScale: true,
 		x: true,
 		y: false,
+		uni: null
 	},
 
 	focus: {
@@ -846,8 +847,9 @@ function _sync(opts) {
 	};
 }
 
-function setDefaults(d, xo, yo) {
-	return [d[0], d[1]].concat(d.slice(2)).map((o, i) => setDefault(o, i, xo, yo));
+function setDefaults(d, xo, yo, initY) {
+	let d2 = initY ? [d[0], d[1]].concat(d.slice(2)) : [d[0]].concat(d.slice(1));
+	return d2.map((o, i) => setDefault(o, i, xo, yo));
 }
 
 function setDefault(o, i, xo, yo) {
@@ -940,9 +942,9 @@ function uPlot(opts, data, then) {
 
 	let ready = false;
 
-	const series  = setDefaults(opts.series, xSeriesOpts, ySeriesOpts);
-	const axes    = setDefaults(opts.axes || [], xAxisOpts, yAxisOpts);
-	const scales  = (opts.scales = opts.scales || {});
+	const series  = self.series = setDefaults(opts.series || [], xSeriesOpts, ySeriesOpts, false);
+	const axes    = self.axes   = setDefaults(opts.axes   || [], xAxisOpts,   yAxisOpts,    true);
+	const scales  = self.scales = (opts.scales = opts.scales || {});
 
 	const gutters = assign({
 		x: round(yAxisOpts.size / 2),
@@ -956,10 +958,6 @@ function uPlot(opts, data, then) {
 	const _timeAxisSplits =  timeAxisSplits(_tzDate);
 	const _timeAxisVals   =  timeAxisVals(_tzDate, timeAxisStamps(_timeAxisStamps, _fmtDate));
 	const _timeSeriesVal  =  timeSeriesVal(_tzDate, timeSeriesStamp(_timeSeriesStamp, _fmtDate));
-
-	self.series = series;
-	self.axes = axes;
-	self.scales = scales;
 
 	const pendScales = {};
 
@@ -982,7 +980,7 @@ function uPlot(opts, data, then) {
 	if (showLegend) {
 		legendEl = placeTag("table", "legend", root);
 
-		const getMultiVals = series[1].values;
+		const getMultiVals = series[1] ? series[1].values : null;
 		multiValLegend = getMultiVals != null;
 
 		if (multiValLegend) {
@@ -1183,6 +1181,9 @@ function uPlot(opts, data, then) {
 	let data0 = null;
 
 	function setData(_data, _resetScales) {
+		_data = _data || [];
+		_data[0] = _data[0] || [];
+
 		self.data = _data;
 		data = _data.slice();
 		data0 = data[0];
@@ -2076,6 +2077,8 @@ function uPlot(opts, data, then) {
 
 	const drag =  cursor.drag;
 
+	let dragX =  drag.x;
+	let dragY =  drag.y;
 	if ( cursor.show) {
 		let c = "cursor-";
 
@@ -2345,18 +2348,50 @@ function uPlot(opts, data, then) {
 		// nit: cursor.drag.setSelect is assumed always true
 		if (mouseLeft1 >= 0 && select.show && dragging) {
 			// setSelect should not be triggered on move events
-			if (drag.x) {
+
+			dragX = drag.x;
+			dragY = drag.y;
+
+			let uni = drag.uni;
+
+			if (uni != null) {
+				let dx = abs(mouseLeft0 - mouseLeft1);
+				let dy = abs(mouseTop0 - mouseTop1);
+
+				dragX = dx >= uni;
+				dragY = dy >= uni;
+
+				// force unidirectionality when both are under uni limit
+				if (!dragX && !dragY) {
+					if (dy > dx)
+						dragY = true;
+					else
+						dragX = true;
+				}
+			}
+
+			if (dragX) {
 				let minX = min(mouseLeft0, mouseLeft1);
 				let maxX = max(mouseLeft0, mouseLeft1);
 				setStylePx(selectDiv, LEFT,  select[LEFT] = minX);
 				setStylePx(selectDiv, WIDTH, select[WIDTH] = maxX - minX);
+
+				if (uni != null && !dragY) {
+					setStylePx(selectDiv, TOP, select[TOP] = 0);
+					setStylePx(selectDiv, HEIGHT, select[HEIGHT] = plotHgtCss);
+				}
 			}
 
-			if (drag.y) {
+			if (dragY) {
 				let minY = min(mouseTop0, mouseTop1);
 				let maxY = max(mouseTop0, mouseTop1);
 				setStylePx(selectDiv, TOP,    select[TOP] = minY);
 				setStylePx(selectDiv, HEIGHT, select[HEIGHT] = maxY - minY);
+
+				if (uni != null && !dragX) {
+					setStylePx(selectDiv, LEFT, select[LEFT] = 0);
+					setStylePx(selectDiv, WIDTH, select[WIDTH] = plotWidCss);
+				}
 			}
 		}
 
@@ -2471,14 +2506,14 @@ function uPlot(opts, data, then) {
 
 				if (drag.setScale) {
 					batch(() => {
-						if (drag.x) {
+						if (dragX) {
 							_setScale(xScaleKey,
 								scaleValueAtPos(select[LEFT], xScaleKey),
 								scaleValueAtPos(select[LEFT] + select[WIDTH], xScaleKey),
 							);
 						}
 
-						if (drag.y) {
+						if (dragY) {
 							for (let k in scales) {
 								let sc = scales[k];
 

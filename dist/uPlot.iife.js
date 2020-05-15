@@ -671,6 +671,7 @@ var uPlot = (function () {
 			setScale: true,
 			x: true,
 			y: false,
+			uni: null
 		},
 
 		focus: {
@@ -844,8 +845,9 @@ var uPlot = (function () {
 		};
 	}
 
-	function setDefaults(d, xo, yo) {
-		return [d[0], d[1]].concat(d.slice(2)).map(function (o, i) { return setDefault(o, i, xo, yo); });
+	function setDefaults(d, xo, yo, initY) {
+		var d2 = initY ? [d[0], d[1]].concat(d.slice(2)) : [d[0]].concat(d.slice(1));
+		return d2.map(function (o, i) { return setDefault(o, i, xo, yo); });
 	}
 
 	function setDefault(o, i, xo, yo) {
@@ -938,9 +940,9 @@ var uPlot = (function () {
 
 		var ready = false;
 
-		var series  = setDefaults(opts.series, xSeriesOpts, ySeriesOpts);
-		var axes    = setDefaults(opts.axes || [], xAxisOpts, yAxisOpts);
-		var scales  = (opts.scales = opts.scales || {});
+		var series  = self.series = setDefaults(opts.series || [], xSeriesOpts, ySeriesOpts, false);
+		var axes    = self.axes   = setDefaults(opts.axes   || [], xAxisOpts,   yAxisOpts,    true);
+		var scales  = self.scales = (opts.scales = opts.scales || {});
 
 		var gutters = assign({
 			x: round(yAxisOpts.size / 2),
@@ -954,10 +956,6 @@ var uPlot = (function () {
 		var _timeAxisSplits =  timeAxisSplits(_tzDate);
 		var _timeAxisVals   =  timeAxisVals(_tzDate, timeAxisStamps(_timeAxisStamps, _fmtDate));
 		var _timeSeriesVal  =  timeSeriesVal(_tzDate, timeSeriesStamp(_timeSeriesStamp, _fmtDate));
-
-		self.series = series;
-		self.axes = axes;
-		self.scales = scales;
 
 		var pendScales = {};
 
@@ -980,7 +978,7 @@ var uPlot = (function () {
 		if (showLegend) {
 			legendEl = placeTag("table", "legend", root);
 
-			var getMultiVals = series[1].values;
+			var getMultiVals = series[1] ? series[1].values : null;
 			multiValLegend = getMultiVals != null;
 
 			if (multiValLegend) {
@@ -1181,6 +1179,9 @@ var uPlot = (function () {
 		var data0 = null;
 
 		function setData(_data, _resetScales) {
+			_data = _data || [];
+			_data[0] = _data[0] || [];
+
 			self.data = _data;
 			data = _data.slice();
 			data0 = data[0];
@@ -2085,6 +2086,8 @@ var uPlot = (function () {
 
 		var drag =  cursor.drag;
 
+		var dragX =  drag.x;
+		var dragY =  drag.y;
 		if ( cursor.show) {
 			var c = "cursor-";
 
@@ -2354,18 +2357,50 @@ var uPlot = (function () {
 			// nit: cursor.drag.setSelect is assumed always true
 			if (mouseLeft1 >= 0 && select.show && dragging) {
 				// setSelect should not be triggered on move events
-				if (drag.x) {
+
+				dragX = drag.x;
+				dragY = drag.y;
+
+				var uni = drag.uni;
+
+				if (uni != null) {
+					var dx = abs(mouseLeft0 - mouseLeft1);
+					var dy = abs(mouseTop0 - mouseTop1);
+
+					dragX = dx >= uni;
+					dragY = dy >= uni;
+
+					// force unidirectionality when both are under uni limit
+					if (!dragX && !dragY) {
+						if (dy > dx)
+							{ dragY = true; }
+						else
+							{ dragX = true; }
+					}
+				}
+
+				if (dragX) {
 					var minX = min(mouseLeft0, mouseLeft1);
 					var maxX = max(mouseLeft0, mouseLeft1);
 					setStylePx(selectDiv, LEFT,  select[LEFT] = minX);
 					setStylePx(selectDiv, WIDTH, select[WIDTH] = maxX - minX);
+
+					if (uni != null && !dragY) {
+						setStylePx(selectDiv, TOP, select[TOP] = 0);
+						setStylePx(selectDiv, HEIGHT, select[HEIGHT] = plotHgtCss);
+					}
 				}
 
-				if (drag.y) {
+				if (dragY) {
 					var minY = min(mouseTop0, mouseTop1);
 					var maxY = max(mouseTop0, mouseTop1);
 					setStylePx(selectDiv, TOP,    select[TOP] = minY);
 					setStylePx(selectDiv, HEIGHT, select[HEIGHT] = maxY - minY);
+
+					if (uni != null && !dragX) {
+						setStylePx(selectDiv, LEFT, select[LEFT] = 0);
+						setStylePx(selectDiv, WIDTH, select[WIDTH] = plotWidCss);
+					}
 				}
 			}
 
@@ -2480,14 +2515,14 @@ var uPlot = (function () {
 
 					if (drag.setScale) {
 						batch(function () {
-							if (drag.x) {
+							if (dragX) {
 								_setScale(xScaleKey,
 									scaleValueAtPos(select[LEFT], xScaleKey),
 									scaleValueAtPos(select[LEFT] + select[WIDTH], xScaleKey)
 								);
 							}
 
-							if (drag.y) {
+							if (dragY) {
 								for (var k in scales) {
 									var sc = scales[k];
 
