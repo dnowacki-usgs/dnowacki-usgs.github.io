@@ -18,7 +18,7 @@
 	</style>
 </head>
 <body>
-	<script src="../dist/uPlot.iife.js"></script>
+	<script src="../dist/uPlot.iife.min.js"></script>
 	<script>
 	fetch("https://geoport.usgs.esipfed.org/erddap/tabledap/wind-bel.json?time%2CDm%2CSm%2CPa%2CTa&time%3E=now-7days").then(r => r.json()).then(dataraw => {
 
@@ -65,6 +65,10 @@
 					stroke: "blue",
 				},
 				{stroke: "red",
+				width: 0,
+				points: {
+							show: true,
+						},
 				value: (self, rawValue) => rawValue + " °",
 				scale: "degrees",
 				label:'Wind direction'}

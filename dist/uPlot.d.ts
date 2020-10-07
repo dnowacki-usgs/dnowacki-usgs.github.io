@@ -6,7 +6,7 @@ declare class uPlot {
 		targ?: HTMLElement | ((self: uPlot, init: Function) => void)
 	);
 
-	/** width of the plotting area + axes in CSS pixels */
+	/** chart container */
 	readonly root: HTMLElement;
 
 	/** width of the plotting area + axes in CSS pixels */
@@ -70,7 +70,7 @@ declare class uPlot {
 
 	// TODO: include other series style opts which are dynamically pulled?
 	/** toggles series visibility or focus */
-	setSeries(opts: {show?: boolean, focus?: boolean}): void;
+	setSeries(seriesIdx: number, opts: {show?: boolean, focus?: boolean}): void;
 
 	/** adds a series */
 	addSeries(opts: uPlot.Series, seriesIdx?: number): void;
@@ -105,6 +105,12 @@ declare class uPlot {
 	/** re-ranges a given min/max by a multiple of the range's magnitude (used internally to expand/snap/pad numeric y scales) */
 	static rangeNum(min: number, max: number, mult: number, extra: boolean): uPlot.MinMax;
 
+	/** re-ranges a given min/max outwards to nearest 10% of given min/max's magnitudes, unless fullMags = true */
+	static rangeLog(min: number, max: number, fullMags: boolean): uPlot.MinMax;
+
+	/** default numeric formatter using browser's locale: new Intl.NumberFormat(navigator.language).format */
+	static fmtNum(val: number): string;
+
 	/** creates an efficient formatter for Date objects from a template string, e.g. {YYYY}-{MM}-{DD} */
 	static fmtDate(tpl: string, names?: uPlot.DateNames): (date: Date) => string;
 
@@ -115,7 +121,11 @@ declare class uPlot {
 declare namespace uPlot {
 	export type AlignedData = readonly (number | null)[][];
 
+	export type SyncScales = [string, string];
+
 	export type MinMax = [number, number];
+
+	export type LeftTop = [number, number];
 
 	export interface DateNames {
 		/** long month names */
@@ -172,10 +182,12 @@ declare namespace uPlot {
 			y?: number;
 		};
 
-		select?: BBox;
+		select?: Select;
 
 		legend?: {
-			show?: boolean;
+			show?: boolean;	// true
+			/** show series values at current cursor.idx */
+			live?: boolean;	// true
 		};
 
 		cursor?: Cursor;
@@ -187,7 +199,7 @@ declare namespace uPlot {
 		plugins?: {
 			/** can mutate provided opts as necessary */
 			opts?: (self: uPlot, opts: Options) => void;
-			hooks: Hooks;
+			hooks: PluginHooks;
 		}[];
 	}
 
@@ -202,6 +214,11 @@ declare namespace uPlot {
 		top: number;
 		width: number;
 		height: number;
+	}
+
+	interface Select extends BBox {
+		/** div into which .u-select will be placed: .u-over or .u-under */
+		over?: boolean; // true
 	}
 
 	export interface Cursor {
@@ -220,8 +237,14 @@ declare namespace uPlot {
 		/** cursor position top offset in CSS pixels (relative to plotting area) */
 		top?: number;
 
-		/** closest data index to cursor */
+		/** closest data index to cursor (closestIdx) */
 		idx?: number;
+
+		/** returns data idx used for hover points & legend display (defaults to closestIdx) */
+		dataIdx?: (self: uPlot, seriesIdx: number, closestIdx: number, xValue: number) => number;
+
+		/** fires on debounced mousemove events; returns refined [left, top] tuple to snap cursor position */
+		move?: (self: uPlot, mouseLeft: number, mouseTop: number) => LeftTop;
 
 		/** series hover points */
 		points?: {
@@ -231,10 +254,12 @@ declare namespace uPlot {
 		/** determines vt/hz cursor dragging to set selection & setScale (zoom) */
 		drag?: {
 			setScale?: boolean; // true
-			/** toggles dragging in along x */
+			/** toggles dragging along x */
 			x?: boolean; // true
-			/** toggles dragging in along y */
+			/** toggles dragging along y */
 			y?: boolean; // false
+			/** min drag distance threshold */
+			dist?: number; // 0
 			/** when x & y are true, sets an upper drag limit in CSS px for adaptive/unidirectional behavior */
 			uni?: number; // null
 		};
@@ -245,6 +270,8 @@ declare namespace uPlot {
 			key: string;
 			/** determines if series toggling and focus via cursor is synced across charts */
 			setSeries?: boolean; // true
+			/** sets the x and y scales to sync by values. null will sync by relative (%) position */
+			scales?: SyncScales; // [xScaleKey, null]
 		};
 
 		/** focus series closest to cursor */
@@ -264,17 +291,20 @@ declare namespace uPlot {
 		/** is this scale temporal, with series' data in UNIX timestamps? */
 		time?: boolean;
 
-		/** determines whether all series' data on this scale be scanned to find the full min/max range */
+		/** determines whether all series' data on this scale will be scanned to find the full min/max range */
 		auto?: boolean;
 
 		/** can define a static scale range or re-range an initially-determined range from series data */
-		range?: MinMax | ((self: uPlot, initMin: number, initMax: number) => MinMax);
+		range?: MinMax | ((self: uPlot, initMin: number, initMax: number, scaleKey: string) => MinMax);
 
 		/** scale key from which this scale is derived */
 		from?: string,
 
-		/** treat the data distribution along this scale as linear (1) or equidistant (2)? */
-		distr?: 1 | 2;
+		/** scale distribution. 1: linear, 2: ordinal, 3: logarithmic */
+		distr?: 1 | 2 | 3;
+
+		/** logarithmic base */
+		log?: 10 | 2; // 10
 
 		/** current min scale value */
 		min?: number,
@@ -282,9 +312,6 @@ declare namespace uPlot {
 		/** current max scale value */
 		max?: number,
 	}
-
-	/** a min,max tuple of canvas pixel offsets */
-	export type DataGap = [number, number];
 
 	export interface Series {
 		/** series on/off. when off, it will not affect its scale */
@@ -296,8 +323,14 @@ declare namespace uPlot {
 		/** scale key */
 		scale?: string;
 
-		/** when true, null data values will not cause line breaks. when fn, should filter and return gaps to span */
-		spanGaps?: boolean | ((self: uPlot, foundGaps: Array<DataGap>, seriesIdx: number) => Array<DataGap>);
+		/** whether this series' data is scanned during auto-ranging of its scale */
+		auto?: boolean;  // true
+
+		/** if & how the data is pre-sorted (scale.auto optimization) */
+		sorted?: 0 | 1 | -1;
+
+		/** when true, null data values will not cause line breaks */
+		spanGaps?: boolean;
 
 		/** legend label */
 		label?: string;
@@ -321,19 +354,19 @@ declare namespace uPlot {
 
 		points?: {
 			/** if boolean or returns boolean, round points are drawn with defined options, else fn should draw own custom points via self.ctx */
-			show: boolean | ((self: uPlot, seriesIdx: number, idx0: number, idx1: number) => boolean | undefined);
+			show?: boolean | ((self: uPlot, seriesIdx: number, idx0: number, idx1: number) => boolean | undefined);
 
 			/** diameter of point in CSS pixels */
-			size: number;
+			size?: number;
 
 			/** line width of circle outline in CSS pixels */
-			width: CanvasRenderingContext2D['lineWidth'];
+			width?: CanvasRenderingContext2D['lineWidth'];
 
 			/** line color of circle outline (defaults to series.stroke) */
-			stroke: CanvasRenderingContext2D['strokeStyle'];
+			stroke?: CanvasRenderingContext2D['strokeStyle'];
 
 			/** fill color of circle (defaults to #fff) */
-			fill: CanvasRenderingContext2D['fillStyle'];
+			fill?: CanvasRenderingContext2D['fillStyle'];
 		};
 
 		/** any two adjacent series with band: true, are filled as a single low/high band */
@@ -347,6 +380,9 @@ declare namespace uPlot {
 
 		/** area fill & legend color */
 		fill?: CanvasRenderingContext2D['fillStyle'];
+
+		/** area fill baseline (default: 0) */
+		fillTo?: number | ((self: uPlot, seriesIdx: number, dataMin: number, dataMax: number) => number);
 
 		/** line dash segment array */
 		dash?: number[];					// CanvasRenderingContext2D['setLineDash'];
@@ -363,6 +399,9 @@ declare namespace uPlot {
 		/** current max rendered value */
 		max?: number,
 	}
+
+	/** must return an array of same length as splits, e.g. via splits.map() */
+	type AxisSplitsFilter = (self: uPlot, splits: number[], axisIdx: number, foundSpace: number, foundIncr: number) => Array<number|null>;
 
 	export interface Axis {
 		/** axis on/off */
@@ -395,25 +434,31 @@ declare namespace uPlot {
 		/** font used for axis label */
 		labelFont?: CanvasRenderingContext2D['font'];
 
-		/** minimum divisor/tick spacing in CSS pixels */
-		space?: number | ((self: uPlot, scaleMin: number, scaleMax: number, plotDim: number) => number);
+		/** minimum grid & tick spacing in CSS pixels */
+		space?: number | ((self: uPlot, axisIdx: number, scaleMin: number, scaleMax: number, plotDim: number) => number);
 
 		/** available divisors for axis ticks, values, grid */
-		incrs?: number[] | ((self: uPlot, scaleMin: number, scaleMax: number, fullDim: number, minSpace: number) => number[]);
+		incrs?: number[] | ((self: uPlot, axisIdx: number, scaleMin: number, scaleMax: number, fullDim: number, minSpace: number) => number[]);
 
 		/** determines how and where the axis must be split for placing ticks, values, grid */
-		split?: number[] | ((self: uPlot, scaleMin: number, scaleMax: number, foundIncr: number, pctSpace: number) => number[]);
+		splits?: number[] | ((self: uPlot, axisIdx: number, scaleMin: number, scaleMax: number, foundIncr: number, pctSpace: number) => number[]);
 
-		/** formats splits values for rendering */
-		values?: (self: uPlot, splits: number[], foundSpace: number, foundIncr: number) => Array<string|number>;
+		/** can filter which splits are passed to axis.values() for rendering. e.g splits.map(v => v % 2 == 0 ? v : null) */
+		filter?: AxisSplitsFilter;
+
+		/** formats values for rendering */
+		values?: ((self: uPlot, splits: number[], axisIdx: number, foundSpace: number, foundIncr: number) => Array<string|number|null>) | (string | number | null)[][];
 
 		/** values rotation in degrees off horizontal (only bottom axes w/ side: 2) */
-		rotate?: number | ((self: uPlot, values: Array<string|number>, foundSpace: number) => number);
+		rotate?: number | ((self: uPlot, values: Array<string|number>, axisIdx: number, foundSpace: number) => number);
 
 		/** gridlines to draw from this axis' splits */
 		grid?: {
 			/** grid on/off */
 			show?: boolean; // true
+
+			/** can filter which splits render gridlines. e.g splits.map(v => v % 2 == 0 ? v : null) */
+			filter?: AxisSplitsFilter;
 
 			/** gridline color */
 			stroke?: CanvasRenderingContext2D['strokeStyle'];
@@ -430,6 +475,9 @@ declare namespace uPlot {
 			/** ticks on/off */
 			show?: boolean; // true
 
+			/** can filter which splits render ticks. e.g splits.map(v => v % 2 == 0 ? v : null) */
+			filter?: AxisSplitsFilter;
+
 			/** tick color */
 			stroke?: CanvasRenderingContext2D['strokeStyle'];
 
@@ -444,46 +492,49 @@ declare namespace uPlot {
 		};
 	}
 
-	export interface Hooks {
+	interface HooksDescription {
 		/** fires after opts are defaulted & merged but data has not been set and scales have not been ranged */
-		init?:       ((self: uPlot, opts: Options, data: AlignedData) => void)[];
+		init?:       (self: uPlot, opts: Options, data: AlignedData) => void;
 
 		/** fires after any scale has changed */
-		setScale?:   ((self: uPlot, scaleKey: string) => void)[];
+		setScale?:   (self: uPlot, scaleKey: string) => void;
 
 		/** fires after the cursor is moved (debounced by rAF) */
-		setCursor?:  ((self: uPlot) => void)[];
+		setCursor?:  (self: uPlot) => void;
 
 		/** fires after a selection is completed */
-		setSelect?:  ((self: uPlot) => void)[];
+		setSelect?:  (self: uPlot) => void;
 
 		/** fires after a series is toggled or focused */
-		setSeries?:  ((self: uPlot, seriesIdx: number, opts: Series) => void)[];
+		setSeries?:  (self: uPlot, seriesIdx: number, opts: Series) => void;
 
 		/** fires after data is updated updated */
-		setData?:    ((self: uPlot) => void)[];
+		setData?:    (self: uPlot) => void;
 
 		/** fires after the chart is resized */
-		setSize?:    ((self: uPlot) => void)[];
+		setSize?:    (self: uPlot) => void;
 
 		/** fires at start of every redraw */
-		drawClear?:  ((self: uPlot) => void)[];
+		drawClear?:  (self: uPlot) => void;
 
 		/** fires after all axes are drawn */
-		drawAxes?:   ((self: uPlot) => void)[];
+		drawAxes?:   (self: uPlot) => void;
 
 		/** fires after each series is drawn */
-		drawSeries?: ((self: uPlot, seriesKey: string) => void)[];
+		drawSeries?: (self: uPlot, seriesKey: string) => void;
 
 		/** fires after everything is drawn */
-		draw?:       ((self: uPlot) => void)[];
+		draw?:       (self: uPlot) => void;
 
 		/** fires after the chart is fully initialized and in the DOM */
-		ready?:      ((self: uPlot) => void)[];
+		ready?:      (self: uPlot) => void;
 
 		/** fires after the chart is destroyed */
-		destroy?:    ((self: uPlot) => void)[];
+		destroy?:    (self: uPlot) => void;
 	}
+
+	export type Hooks = { [P in keyof HooksDescription]: HooksDescription[P][] }
+	export type PluginHooks = { [P in keyof HooksDescription]: HooksDescription[P] | HooksDescription[P][] }
 }
 
 export default uPlot;

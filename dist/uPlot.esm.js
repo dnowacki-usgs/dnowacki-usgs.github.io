@@ -4,7 +4,7 @@
 *
 * uPlot.js (μPlot)
 * A small, fast chart for time series, lines, areas, ohlc & bars
-* https://github.com/leeoniya/uPlot (v1.0.8)
+* https://github.com/leeoniya/uPlot (v1.2.2)
 */
 
 function debounce(fn, time) {
@@ -43,55 +43,99 @@ function closestIdx(num, arr, lo, hi) {
 	return hi;
 }
 
-function getMinMax(data, _i0, _i1) {
+function getMinMax(data, _i0, _i1, sorted) {
 //	console.log("getMinMax()");
 
 	let _min = inf;
 	let _max = -inf;
 
-	for (let i = _i0; i <= _i1; i++) {
-		if (data[i] != null) {
-			_min = min(_min, data[i]);
-			_max = max(_max, data[i]);
+	if (sorted == 1) {
+		_min = data[_i0];
+		_max = data[_i1];
+	}
+	else if (sorted == -1) {
+		_min = data[_i1];
+		_max = data[_i0];
+	}
+	else {
+		for (let i = _i0; i <= _i1; i++) {
+			if (data[i] != null) {
+				_min = min(_min, data[i]);
+				_max = max(_max, data[i]);
+			}
 		}
 	}
 
 	return [_min, _max];
 }
 
+const _fixedTuple = [0, 0];
+
+function fixIncr(minIncr, maxIncr, minExp, maxExp) {
+	_fixedTuple[0] = minExp < 0 ? roundDec(minIncr, -minExp) : minIncr;
+	_fixedTuple[1] = maxExp < 0 ? roundDec(maxIncr, -maxExp) : maxIncr;
+	return _fixedTuple;
+}
+
+function rangeLog(min, max, base, fullMags) {
+	let logFn = base == 10 ? log10 : log2;
+
+	if (min == max) {
+		min /= base;
+		max *= base;
+	}
+
+	let minExp, maxExp, minMaxIncrs;
+
+	if (fullMags) {
+		minExp = floor(logFn(min));
+		maxExp =  ceil(logFn(max));
+
+		minMaxIncrs = fixIncr(pow(base, minExp), pow(base, maxExp), minExp, maxExp);
+
+		min = minMaxIncrs[0];
+		max = minMaxIncrs[1];
+	}
+	else {
+		minExp = floor(logFn(min));
+		maxExp = floor(logFn(max));
+
+		minMaxIncrs = fixIncr(pow(base, minExp), pow(base, maxExp), minExp, maxExp);
+
+		min = incrRoundDn(min, minMaxIncrs[0]);
+		max = incrRoundUp(max, minMaxIncrs[1]);
+	}
+
+	return [min, max];
+}
+
 // this ensures that non-temporal/numeric y-axes get multiple-snapped padding added above/below
 // TODO: also account for incrs when snapping to ensure top of axis gets a tick & value
 function rangeNum(min, max, mult, extra) {
-	// auto-scale Y
-	const delta = max - min;
-	const mag = log10(delta || abs(max) || 1);
-	const exp = floor(mag);
-	const incr = pow(10, exp) * mult;
-	const buf = delta == 0 ? incr : 0;
+	if (min == max && (min == null || min == 0))
+		return [0, 100];
 
-	let snappedMin = round6(incrRoundDn(min - buf, incr));
-	let snappedMax = round6(incrRoundUp(max + buf, incr));
+	const delta = max - min;
+	const nonZeroDelta = delta || abs(max) || 1e3;
+	const mag = log10(nonZeroDelta);
+	const base = pow(10, floor(mag));
+
+	const padding = nonZeroDelta * mult;
+	const newMin = min - padding;
+	const newMax = max + padding;
+
+	let snappedMin = roundDec(incrRoundDn(newMin, base/100), 6);
+	let snappedMax = roundDec(incrRoundUp(newMax, base/100), 6);
 
 	if (extra) {
 		// for flat data, always use 0 as one chart extreme & place data in center
 		if (delta == 0) {
-			if (max > 0) {
+			if (max > 0)
 				snappedMin = 0;
-				snappedMax = max * 2;
-			}
-			else if (max < 0) {
+			else if (max < 0)
 				snappedMax = 0;
-				snappedMin = min * 2;
-			}
 		}
 		else {
-			// if buffer is too small, increase it
-			if (snappedMax - max < incr)
-				snappedMax += incr;
-
-			if (min - snappedMin < incr)
-				snappedMin -= incr;
-
 			// if original data never crosses 0, use 0 as one chart extreme
 			if (min >= 0 && snappedMin < 0)
 				snappedMin = 0;
@@ -104,6 +148,9 @@ function rangeNum(min, max, mult, extra) {
 	return [snappedMin, snappedMax];
 }
 
+// alternative: https://stackoverflow.com/a/2254896
+const fmtNum = new Intl.NumberFormat(navigator.language).format;
+
 const M = Math;
 
 const abs = M.abs;
@@ -114,6 +161,7 @@ const min = M.min;
 const max = M.max;
 const pow = M.pow;
 const log10 = M.log10;
+const log2 = M.log2;
 const PI = M.PI;
 
 const inf = Infinity;
@@ -130,8 +178,8 @@ function fnOrSelf(v) {
 	return typeof v == "function" ? v : () => v;
 }
 
-function retArg2(a, b) {
-	return b;
+function retArg1(_0, _1) {
+	return _1;
 }
 
 function incrRoundUp(num, incr) {
@@ -142,15 +190,32 @@ function incrRoundDn(num, incr) {
 	return floor(num/incr)*incr;
 }
 
-function round3(val) {
-	return round(val * 1e3) / 1e3;
+function roundDec(val, dec) {
+	return round(val * (dec = 10**dec)) / dec;
 }
 
-function round6(val) {
-	return round(val * 1e6) / 1e6;
+const fixedDec = new Map();
+
+function genIncrs(base, minExp, maxExp, mults) {
+	let incrs = [];
+
+	for (let exp = minExp; exp < maxExp; exp++) {
+		let mag = pow(base, exp);
+		let expa = abs(exp);
+
+		for (let i = 0; i < mults.length; i++) {
+			let incr = roundDec(mults[i] * mag, expa);
+			incrs.push(incr);
+			fixedDec.set(incr, incr < 1 ? expa : 0);
+		}
+	}
+
+	return incrs;
 }
 
 //export const assign = Object.assign;
+
+const EMPTY_OBJ = {};
 
 const isArr = Array.isArray;
 
@@ -215,6 +280,27 @@ const dblclick = "dblclick";
 const resize = "resize";
 const scroll = "scroll";
 
+const pre = "u-";
+
+const UPLOT          =       "uplot";
+const TITLE          = pre + "title";
+const WRAP           = pre + "wrap";
+const UNDER          = pre + "under";
+const OVER           = pre + "over";
+const OFF            = pre + "off";
+const SELECT         = pre + "select";
+const CURSOR_X       = pre + "cursor-x";
+const CURSOR_Y       = pre + "cursor-y";
+const CURSOR_PT      = pre + "cursor-pt";
+const LEGEND         = pre + "legend";
+const LEGEND_LIVE    = pre + "live";
+const LEGEND_INLINE  = pre + "inline";
+const LEGEND_THEAD   = pre + "thead";
+const LEGEND_SERIES  = pre + "series";
+const LEGEND_MARKER  = pre + "marker";
+const LEGEND_LABEL   = pre + "label";
+const LEGEND_VALUE   = pre + "value";
+
 const rAF = requestAnimationFrame;
 const doc = document;
 const win = window;
@@ -248,8 +334,13 @@ function placeDiv(cls, targ) {
 	return placeTag("div", cls, targ);
 }
 
-function trans(el, xPos, yPos) {
+function trans(el, xPos, yPos, xMax, yMax) {
 	el.style.transform = "translate(" + xPos + "px," + yPos + "px)";
+
+	if (xPos < 0 || yPos < 0 || xPos > xMax || yPos > yMax)
+		addClass(el, OFF);
+	else
+		remClass(el, OFF);
 }
 
 const evOpts = {passive: true};
@@ -395,10 +486,22 @@ function fmtDate(tpl, names) {
 	}
 }
 
+const localTz = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+
 // https://stackoverflow.com/questions/15141762/how-to-initialize-a-javascript-date-to-a-particular-time-zone/53652131#53652131
 function tzDate(date, tz) {
-	let date2 = new Date(date.toLocaleString('en-US', {timeZone: tz}));
-	date2.setMilliseconds(date[getMilliseconds]());
+	let date2;
+
+	// perf optimization
+	if (tz == 'Etc/UTC')
+		date2 = new Date(+date + date.getTimezoneOffset() * 6e4);
+	else if (tz == localTz)
+		date2 = date;
+	else {
+		date2 = new Date(date.toLocaleString('en-US', {timeZone: tz}));
+		date2.setMilliseconds(date[getMilliseconds]());
+	}
+
 	return date2;
 }
 
@@ -406,24 +509,14 @@ function tzDate(date, tz) {
 
 // default formatters:
 
-function genIncrs(minExp, maxExp, mults) {
-	let incrs = [];
-
-	for (let exp = minExp; exp < maxExp; exp++) {
-		for (let i = 0; i < mults.length; i++) {
-			let incr = mults[i] * pow(10, exp);
-			incrs.push(+incr.toFixed(abs(exp)));
-		}
-	}
-
-	return incrs;
-}
-
 const incrMults = [1,2,5];
 
-const decIncrs = genIncrs(-12, 0, incrMults);
+const decIncrs = genIncrs(10, -16, 0, incrMults);
 
-const intIncrs = genIncrs(0, 12, incrMults);
+// base 2
+const binIncrs = genIncrs(2, -53, 53, [1]);
+
+const intIncrs = genIncrs(10, 0, 16, incrMults);
 
 const numIncrs = decIncrs.concat(intIncrs);
 
@@ -435,7 +528,7 @@ let s = 1,
 	y = d * 365;
 
 // starting below 1e-3 is a hack to allow the incr finder to choose & bail out at incr < 1ms
-const timeIncrs =  [5e-4].concat(genIncrs(-3, 0, incrMults), [
+const timeIncrs =  [5e-4].concat(genIncrs(10, -3, 0, incrMults), [
 	// minute divisors (# of secs)
 	1,
 	5,
@@ -485,66 +578,82 @@ const timeIncrs =  [5e-4].concat(genIncrs(-3, 0, incrMults), [
 ]);
 
 function timeAxisStamps(stampCfg, fmtDate) {
-	return stampCfg.map(s => [
-		s[0],
-		fmtDate(s[1]),
-		s[2],
-		fmtDate(s[4] ? s[1] + s[3] : s[3]),
-	]);
+	return stampCfg.map(s => s.map((v, i) =>
+		i == 0 || i == 8 || v == null ? v : fmtDate(i == 1 || s[8] == 0 ? v : s[1] + v)
+	));
 }
 
+const NL = "\n";
+
 const yyyy = "{YYYY}";
-const NLyyyy = "\n" + yyyy;
+const NLyyyy = NL + yyyy;
 const md = "{M}/{D}";
-const NLmd = "\n" + md;
+const NLmd = NL + md;
+const NLmdyy = NLmd + "/{YY}";
 
 const aa = "{aa}";
 const hmm = "{h}:{mm}";
 const hmmaa = hmm + aa;
+const NLhmmaa = NL + hmmaa;
 const ss = ":{ss}";
 
-// [0]: minimum num secs in the tick incr
-// [1]: normal tick format
-// [2]: when a differing <x> is encountered - 1: sec, 2: min, 3: hour, 4: day, 5: week, 6: month, 7: year
-// [3]: use a longer more contextual format
-// [4]: modes: 0: replace [1] -> [3], 1: concat [1] + [3]
+const _ = null;
+
+// [0]:   minimum num secs in the tick incr
+// [1]:   default tick format
+// [2-7]: rollover tick formats
+// [8]:   mode: 0: replace [1] -> [2-7], 1: concat [1] + [2-7]
 const _timeAxisStamps = [
-	[y,        yyyy,            7,   "",                    1],
-	[d * 28,   "{MMM}",         7,   NLyyyy,                1],
-	[d,        md,              7,   NLyyyy,                1],
-	[h,        "{h}" + aa,      4,   NLmd,                  1],
-	[m,        hmmaa,           4,   NLmd,                  1],
-	[s,        ss,              2,   NLmd  + " " + hmmaa,   1],
-	[1e-3,     ss + ".{fff}",   2,   NLmd  + " " + hmmaa,   1],
+//   tick incr    default          year                    month   day                   hour    min       sec   mode
+	[y,           yyyy,            _,                      _,      _,                    _,      _,        _,       1],
+	[d * 28,      "{MMM}",         NLyyyy,                 _,      _,                    _,      _,        _,       1],
+	[d,           md,              NLyyyy,                 _,      _,                    _,      _,        _,       1],
+	[h,           "{h}" + aa,      NLmdyy,                 _,      NLmd,                 _,      _,        _,       1],
+	[m,           hmmaa,           NLmdyy,                 _,      NLmd,                 _,      _,        _,       1],
+	[s,           ss,              NLmdyy + " " + hmmaa,   _,      NLmd + " " + hmmaa,   _,      NLhmmaa,  _,       1],
+	[1e-3,        ss + ".{fff}",   NLmdyy + " " + hmmaa,   _,      NLmd + " " + hmmaa,   _,      NLhmmaa,  _,       1],
 ];
 
 // TODO: will need to accept spaces[] and pull incr into the loop when grid will be non-uniform, eg for log scales.
 // currently we ignore this for months since they're *nearly* uniform and the added complexity is not worth it
 function timeAxisVals(tzDate, stamps) {
-	return (self, splits, space, incr) => {
-		let s = stamps.find(e => incr >= e[0]);
+	return (self, splits, axisIdx, foundSpace, foundIncr) => {
+		let s = stamps.find(s => foundIncr >= s[0]) || stamps[stamps.length - 1];
 
 		// these track boundaries when a full label is needed again
-		let prevYear = null;
-		let prevDate = null;
-		let prevMinu = null;
+		let prevYear;
+		let prevMnth;
+		let prevDate;
+		let prevHour;
+		let prevMins;
+		let prevSecs;
 
-		return splits.map((split, i) => {
+		return splits.map(split => {
 			let date = tzDate(split);
 
 			let newYear = date[getFullYear]();
+			let newMnth = date[getMonth]();
 			let newDate = date[getDate]();
-			let newMinu = date[getMinutes]();
+			let newHour = date[getHours]();
+			let newMins = date[getMinutes]();
+			let newSecs = date[getSeconds]();
 
-			let diffYear = newYear != prevYear;
-			let diffDate = newDate != prevDate;
-			let diffMinu = newMinu != prevMinu;
-
-			let stamp = s[2] == 7 && diffYear || s[2] == 4 && diffDate || s[2] == 2 && diffMinu ? s[3] : s[1];
+			let stamp = (
+				newYear != prevYear && s[2] ||
+				newMnth != prevMnth && s[3] ||
+				newDate != prevDate && s[4] ||
+				newHour != prevHour && s[5] ||
+				newMins != prevMins && s[6] ||
+				newSecs != prevSecs && s[7] ||
+				                       s[1]
+			);
 
 			prevYear = newYear;
+			prevMnth = newMnth;
 			prevDate = newDate;
-			prevMinu = newMinu;
+			prevHour = newHour;
+			prevMins = newMins;
+			prevSecs = newSecs;
 
 			return stamp(date);
 		});
@@ -560,28 +669,30 @@ function mkDate(y, m, d) {
 // https://www.timeanddate.com/time/dst/2019.html
 // https://www.epochconverter.com/timezones
 function timeAxisSplits(tzDate) {
-	return (self, scaleMin, scaleMax, incr, pctSpace) => {
+	return (self, axisIdx, scaleMin, scaleMax, foundIncr, foundSpace) => {
 		let splits = [];
-		let isMo = incr >= mo && incr < y;
+		let isYr = foundIncr >= y;
+		let isMo = foundIncr >= mo && foundIncr < y;
 
 		// get the timezone-adjusted date
 		let minDate = tzDate(scaleMin);
 		let minDateTs = minDate / 1e3;
 
 		// get ts of 12am (this lands us at or before the original scaleMin)
-		let minMin = mkDate(minDate[getFullYear](), minDate[getMonth](), isMo ? 1 : minDate[getDate]());
+		let minMin = mkDate(minDate[getFullYear](), isYr ? 0 : minDate[getMonth](), isMo || isYr ? 1 : minDate[getDate]());
 		let minMinTs = minMin / 1e3;
 
-		if (isMo) {
-			let moIncr = incr / mo;
+		if (isMo || isYr) {
+			let moIncr = isMo ? foundIncr / mo : 0;
+			let yrIncr = isYr ? foundIncr / y  : 0;
 		//	let tzOffset = scaleMin - minDateTs;		// needed?
-			let split = minDateTs == minMinTs ? minDateTs : mkDate(minMin[getFullYear](), minMin[getMonth]() + moIncr, 1) / 1e3;
+			let split = minDateTs == minMinTs ? minDateTs : mkDate(minMin[getFullYear]() + yrIncr, minMin[getMonth]() + moIncr, 1) / 1e3;
 			let splitDate = new Date(split * 1e3);
 			let baseYear = splitDate[getFullYear]();
 			let baseMonth = splitDate[getMonth]();
 
 			for (let i = 0; split <= scaleMax; i++) {
-				let next = mkDate(baseYear, baseMonth + moIncr * i, 1);
+				let next = mkDate(baseYear + yrIncr * i, baseMonth + moIncr * i, 1);
 				let offs = next - tzDate(next / 1e3);
 
 				split = (+next + offs) / 1e3;
@@ -591,7 +702,7 @@ function timeAxisSplits(tzDate) {
 			}
 		}
 		else {
-			let incr0 = incr >= d ? d : incr;
+			let incr0 = foundIncr >= d ? d : foundIncr;
 			let tzOffset = floor(scaleMin) - floor(minDateTs);
 			let split = minMinTs + tzOffset + incrRoundUp(minDateTs - minMinTs, incr0);
 			splits.push(split);
@@ -599,32 +710,39 @@ function timeAxisSplits(tzDate) {
 			let date0 = tzDate(split);
 
 			let prevHour = date0[getHours]() + (date0[getMinutes]() / m) + (date0[getSeconds]() / h);
-			let incrHours = incr / h;
+			let incrHours = foundIncr / h;
+
+			let minSpace = self.axes[axisIdx].space();		// TOFIX: only works for static space:
+			let pctSpace = foundSpace / minSpace;
 
 			while (1) {
-				split = round3(split + incr);
-
-				let expectedHour = floor(round6(prevHour + incrHours)) % 24;
-				let splitDate = tzDate(split);
-				let actualHour = splitDate.getHours();
-
-				let dstShift = actualHour - expectedHour;
-
-				if (dstShift > 1)
-					dstShift = -1;
-
-				split -= dstShift * h;
+				split = roundDec(split + foundIncr, 3);
 
 				if (split > scaleMax)
 					break;
 
-				prevHour = (prevHour + incrHours) % 24;
+				if (incrHours > 1) {
+					let expectedHour = floor(roundDec(prevHour + incrHours, 6)) % 24;
+					let splitDate = tzDate(split);
+					let actualHour = splitDate.getHours();
 
-				// add a tick only if it's further than 70% of the min allowed label spacing
-				let prevSplit = splits[splits.length - 1];
-				let pctIncr = round3((split - prevSplit) / incr);
+					let dstShift = actualHour - expectedHour;
 
-				if (pctIncr * pctSpace >= .7)
+					if (dstShift > 1)
+						dstShift = -1;
+
+					split -= dstShift * h;
+
+					prevHour = (prevHour + incrHours) % 24;
+
+					// add a tick only if it's further than 70% of the min allowed label spacing
+					let prevSplit = splits[splits.length - 1];
+					let pctIncr = roundDec((split - prevSplit) / foundIncr, 3);
+
+					if (pctIncr * pctSpace >= .7)
+						splits.push(split);
+				}
+				else
 					splits.push(split);
 			}
 		}
@@ -660,11 +778,24 @@ function cursorPoint(self, si) {
 	return pt;
 }
 
+function dataIdx(self, seriesIdx, cursorIdx) {
+	return cursorIdx;
+}
+
+const moveTuple = [0,0];
+
+function cursorMove(self, mouseLeft1, mouseTop1) {
+	moveTuple[0] = mouseLeft1;
+	moveTuple[1] = mouseTop1;
+	return moveTuple;
+}
+
 const cursorOpts = {
 	show: true,
 	x: true,
 	y: true,
 	lock: false,
+	move: cursorMove,
 	points: {
 		show: cursorPoint,
 	},
@@ -673,7 +804,10 @@ const cursorOpts = {
 		setScale: true,
 		x: true,
 		y: false,
-		uni: null
+		dist: 0,
+		uni: null,
+		_x: false,
+		_y: false,
 	},
 
 	focus: {
@@ -684,6 +818,7 @@ const cursorOpts = {
 	left: -10,
 	top: -10,
 	idx: null,
+	dataIdx,
 };
 
 const grid = {
@@ -691,16 +826,16 @@ const grid = {
 	stroke: "rgba(0,0,0,0.07)",
 	width: 2,
 //	dash: [],
+	filter: retArg1,
 };
 
 const ticks = assign({}, grid, {size: 10});
 
-const font      = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"';
+const font      = '12px system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"';
 const labelFont = "bold " + font;
 const lineMult = 1.5;		// font-size multiplier
 
 const xAxisOpts = {
-	type: "x",
 	show: true,
 	scale: "x",
 	space: 50,
@@ -712,6 +847,7 @@ const xAxisOpts = {
 //	class: "x-vals",
 //	incrs: timeIncrs,
 //	values: timeVals,
+//	filter: retArg1,
 	grid,
 	ticks,
 	font,
@@ -724,6 +860,8 @@ const timeSeriesLabel = "Time";
 const xSeriesOpts = {
 	show: true,
 	scale: "x",
+	auto: false,
+	sorted: 1,
 //	label: "Time",
 //	value: v => stamp(new Date(v * 1e3)),
 
@@ -733,33 +871,87 @@ const xSeriesOpts = {
 	idxs: [],
 };
 
-// alternative: https://stackoverflow.com/a/2254896
-let fmtNum = new Intl.NumberFormat(navigator.language);
-
-function numAxisVals(self, splits, space, incr) {
-	return splits.map(fmtNum.format);
+function numAxisVals(self, splits, axisIdx, foundSpace, foundIncr) {
+	return splits.map(v => v == null ? "" : fmtNum(v));
 }
 
-function numAxisSplits(self, scaleMin, scaleMax, incr, pctSpace, forceMin) {
-	scaleMin = forceMin ? scaleMin : +incrRoundUp(scaleMin, incr).toFixed(12);
-
+function numAxisSplits(self, axisIdx, scaleMin, scaleMax, foundIncr, foundSpace, forceMin) {
 	let splits = [];
 
-	for (let val = scaleMin; val <= scaleMax; val = +(val + incr).toFixed(12))
+	let numDec = fixedDec.get(foundIncr);
+
+	scaleMin = forceMin ? scaleMin : roundDec(incrRoundUp(scaleMin, foundIncr), numDec);
+
+	for (let val = scaleMin; val <= scaleMax; val = roundDec(val + foundIncr, numDec))
 		splits.push(val);
 
 	return splits;
 }
 
+function logAxisSplits(self, axisIdx, scaleMin, scaleMax, foundIncr, foundSpace, forceMin) {
+	const splits = [];
+
+	const logBase = self.scales[self.axes[axisIdx].scale].log;
+
+	const logFn = logBase == 10 ? log10 : log2;
+
+	const exp = floor(logFn(scaleMin));
+
+	foundIncr = pow(logBase, exp);
+
+	if (exp < 0)
+		foundIncr = roundDec(foundIncr, -exp);
+
+	let split = scaleMin;
+
+	do {
+		splits.push(split);
+		split = roundDec(split + foundIncr, fixedDec.get(foundIncr));
+
+		if (split >= foundIncr * logBase)
+			foundIncr = split;
+
+	} while (split <= scaleMax);
+
+	return splits;
+}
+
+const RE_ALL   = /./;
+const RE_12357 = /[12357]/;
+const RE_125   = /[125]/;
+const RE_1     = /1/;
+
+function logAxisValsFilt(self, splits, axisIdx, foundSpace, foundIncr) {
+	let axis = self.axes[axisIdx];
+	let scaleKey = axis.scale;
+
+	if (self.scales[scaleKey].log == 2)
+		return splits;
+
+	let valToPos = self.valToPos;
+
+	let minSpace = axis.space();			// TOFIX: only works for static space:
+
+	let _10 = valToPos(10, scaleKey);
+
+	let re = (
+		valToPos(9, scaleKey) - _10 >= minSpace ? RE_ALL :
+		valToPos(7, scaleKey) - _10 >= minSpace ? RE_12357 :
+		valToPos(5, scaleKey) - _10 >= minSpace ? RE_125 :
+		RE_1
+	);
+
+	return splits.map(v => re.test(v) ? v : null);
+}
+
 function numSeriesVal(self, val) {
-	return val;
+	return fmtNum(val);
 }
 
 const yAxisOpts = {
-	type: "y",
 	show: true,
 	scale: "y",
-	space: 40,
+	space: 30,
 	gap: 5,
 	size: 50,
 	labelSize: 30,
@@ -768,6 +960,7 @@ const yAxisOpts = {
 //	class: "y-vals",
 //	incrs: numIncrs,
 //	values: (vals, space) => vals,
+//	filter: retArg1,
 	grid,
 	ticks,
 	font,
@@ -776,7 +969,8 @@ const yAxisOpts = {
 
 // takes stroke width
 function ptDia(width, mult) {
-	return max(round3(5 * mult), round3(width * mult) * 2 - 1);
+	let dia = 3 + (width || 1) * 2;
+	return roundDec(dia * mult, 3);
 }
 
 function seriesPoints(self, si) {
@@ -786,11 +980,18 @@ function seriesPoints(self, si) {
 	return idxs[1] - idxs[0] <= maxPts;
 }
 
+function seriesFillTo(self, seriesIdx, dataMin, dataMax) {
+	let scale = self.scales[self.series[seriesIdx].scale];
+	return scale.distr == 3 ? scale.min : 0;
+}
+
 const ySeriesOpts = {
-//	type: "n",
 	scale: "y",
+	auto: true,
+	sorted: 0,
 	show: true,
 	band: false,
+	spanGaps: false,
 	alpha: 1,
 	points: {
 		show: seriesPoints,
@@ -814,15 +1015,15 @@ const ySeriesOpts = {
 
 const xScaleOpts = {
 	time: true,
-	auto: false,
+	auto: true,
 	distr: 1,
-	min:  inf,
-	max: -inf,
+	log: 10,
+	min: null,
+	max: null,
 };
 
 const yScaleOpts = assign({}, xScaleOpts, {
 	time: false,
-	auto: true,
 });
 
 const syncs = {};
@@ -856,13 +1057,21 @@ function setDefault(o, i, xo, yo) {
 	return assign({}, (i == 0 || o && o.side % 2 == 0 ? xo : yo), o);
 }
 
+function getValPct(val, scale) {
+	return (
+		scale.distr == 3
+		? log10(val / scale.min) / log10(scale.max / scale.min)
+		: (val - scale.min) / (scale.max - scale.min)
+	);
+}
+
 function getYPos(val, scale, hgt, top) {
-	let pctY = (val - scale.min) / (scale.max - scale.min);
+	let pctY = getValPct(val, scale);
 	return top + (1 - pctY) * hgt;
 }
 
 function getXPos(val, scale, wid, lft) {
-	let pctX = (val - scale.min) / (scale.max - scale.min);
+	let pctX = getValPct(val, scale);
 	return lft + pctX * wid;
 }
 
@@ -873,29 +1082,29 @@ function snapTimeX(self, dataMin, dataMax) {
 function snapNumX(self, dataMin, dataMax) {
 	const delta = dataMax - dataMin;
 
-	if (delta == 0) {
-		const mag = log10(delta || abs(dataMax) || 1);
-		const exp = floor(mag) + 1;
-		return [dataMin, incrRoundUp(dataMax, pow(10, exp))];
-	}
-	else
-		return [dataMin, dataMax];
+	return delta == 0 ? rangeNum(dataMin, dataMax, 0, true) : [dataMin, dataMax];
 }
 
 // this ensures that non-temporal/numeric y-axes get multiple-snapped padding added above/below
 // TODO: also account for incrs when snapping to ensure top of axis gets a tick & value
 function snapNumY(self, dataMin, dataMax) {
-	return rangeNum(dataMin, dataMax, 0.2, true);
+	return rangeNum(dataMin, dataMax, 0.1, true);
 }
 
+function snapLogY(self, dataMin, dataMax, scale) {
+	return rangeLog(dataMin, dataMax, self.scales[scale].log, false);
+}
+
+const snapLogX = snapLogY;
+
 // dim is logical (getClientBoundingRect) pixels, not canvas pixels
-function findIncr(valDelta, incrs, dim, minSpace) {
-	let pxPerUnit = dim / valDelta;
+function findIncr(min, max, incrs, dim, minSpace) {
+	let pxPerUnit = dim / (max - min);
 
 	for (var i = 0; i < incrs.length; i++) {
 		let space = incrs[i] * pxPerUnit;
 
-		if (space >= minSpace)
+		if (space >= minSpace && min + incrs[i] > min)
 			return [incrs[i], space];
 	}
 }
@@ -913,7 +1122,7 @@ function pxRatioFont(font) {
 function uPlot(opts, data, then) {
 	const self = {};
 
-	const root = self.root = placeDiv("uplot");
+	const root = self.root = placeDiv(UPLOT);
 
 	if (opts.id != null)
 		root.id = opts.id;
@@ -921,17 +1130,17 @@ function uPlot(opts, data, then) {
 	addClass(root, opts.class);
 
 	if (opts.title) {
-		let title = placeDiv("title", root);
+		let title = placeDiv(TITLE, root);
 		title.textContent = opts.title;
 	}
 
 	const can = placeTag("canvas");
 	const ctx = self.ctx = can.getContext("2d");
 
-	const wrap = placeDiv("wrap", root);
-	const under = placeDiv("under", wrap);
+	const wrap = placeDiv(WRAP, root);
+	const under = placeDiv(UNDER, wrap);
 	wrap.appendChild(can);
-	const over = placeDiv("over", wrap);
+	const over = placeDiv(OVER, wrap);
 
 	opts = copy(opts);
 
@@ -944,7 +1153,54 @@ function uPlot(opts, data, then) {
 
 	const series  = self.series = setDefaults(opts.series || [], xSeriesOpts, ySeriesOpts, false);
 	const axes    = self.axes   = setDefaults(opts.axes   || [], xAxisOpts,   yAxisOpts,    true);
-	const scales  = self.scales = (opts.scales = opts.scales || {});
+	const scales  = self.scales = {};
+
+	const xScaleKey = series[0].scale;
+
+	function initScale(scaleKey) {
+		let sc = scales[scaleKey];
+
+		if (sc == null) {
+			let scaleOpts = (opts.scales || EMPTY_OBJ)[scaleKey] || EMPTY_OBJ;
+
+			if (scaleOpts.from != null) {
+				// ensure parent is initialized
+				initScale(scaleOpts.from);
+				// dependent scales inherit
+				scales[scaleKey] = assign({}, scales[scaleOpts.from], scaleOpts);
+			}
+			else {
+				sc = scales[scaleKey] = assign({}, (scaleKey == xScaleKey ? xScaleOpts : yScaleOpts), scaleOpts);
+
+				let isTime =  sc.time;
+				let isLog  = sc.distr == 3;
+
+				sc.range = fnOrSelf(sc.range || (isTime ? snapTimeX : scaleKey == xScaleKey ? (isLog ? snapLogX : snapNumX) : (isLog ? snapLogY : snapNumY)));
+			}
+		}
+	}
+
+	initScale("x");
+	initScale("y");
+
+	series.forEach((s, i) => {
+		initScale(s.scale);
+	});
+
+	for (let k in opts.scales)
+		initScale(k);
+
+	const xScaleDistr = scales[xScaleKey].distr;
+
+	const pendScales = {};
+
+	// explicitly-set initial scales
+	for (let k in scales) {
+		let sc = scales[k];
+
+		if (sc.min != null || sc.max != null)
+			pendScales[k] = {min: sc.min, max: sc.max};
+	}
 
 	const gutters = assign({
 		x: round(yAxisOpts.size / 2),
@@ -959,17 +1215,7 @@ function uPlot(opts, data, then) {
 	const _timeAxisVals   =  timeAxisVals(_tzDate, timeAxisStamps(_timeAxisStamps, _fmtDate));
 	const _timeSeriesVal  =  timeSeriesVal(_tzDate, timeSeriesStamp(_timeSeriesStamp, _fmtDate));
 
-	const pendScales = {};
-
-	// explicitly-set initial scales
-	for (let k in scales) {
-		let sc = scales[k];
-
-		if (sc.min != null || sc.max != null)
-			pendScales[k] = {min: sc.min, max: sc.max};
-	}
-
-	const legend     =  assign({show: true}, opts.legend);
+	const legend     =  assign({show: true, live: true}, opts.legend);
 	const showLegend =  legend.show;
 
 	let legendEl;
@@ -978,45 +1224,46 @@ function uPlot(opts, data, then) {
 	let multiValLegend = false;
 
 	if (showLegend) {
-		legendEl = placeTag("table", "legend", root);
+		legendEl = placeTag("table", LEGEND, root);
 
 		const getMultiVals = series[1] ? series[1].values : null;
 		multiValLegend = getMultiVals != null;
 
 		if (multiValLegend) {
-			let head = placeTag("tr", "labels", legendEl);
+			let head = placeTag("tr", LEGEND_THEAD, legendEl);
 			placeTag("th", null, head);
 			legendCols = getMultiVals(self, 1, 0);
 
 			for (var key in legendCols)
-				placeTag("th", null, head).textContent = key;
+				placeTag("th", LEGEND_LABEL, head).textContent = key;
 		}
 		else {
 			legendCols = {_: 0};
-			addClass(legendEl, "inline");
+			addClass(legendEl, LEGEND_INLINE);
+			legend.live && addClass(legendEl, LEGEND_LIVE);
 		}
 	}
 
 	function initLegendRow(s, i) {
-		if (i == 0 && multiValLegend)
+		if (i == 0 && (multiValLegend || !legend.live))
 			return null;
 
 		let _row = [];
 
-		let row = placeTag("tr", "series", legendEl, legendEl.childNodes[i]);
+		let row = placeTag("tr", LEGEND_SERIES, legendEl, legendEl.childNodes[i]);
 
 		addClass(row, s.class);
 
 		if (!s.show)
-			addClass(row, "off");
+			addClass(row, OFF);
 
 		let label = placeTag("th", null, row);
 
-		let indic = placeDiv("ident", label);
+		let indic = placeDiv(LEGEND_MARKER, label);
 		s.width && (indic.style.borderColor = s.stroke);
 		indic.style.backgroundColor = s.fill;
 
-		let text = placeDiv("text", label);
+		let text = placeDiv(LEGEND_LABEL, label);
 		text.textContent = s.label;
 
 		if (i > 0) {
@@ -1038,7 +1285,7 @@ function uPlot(opts, data, then) {
 		}
 
 		for (var key in legendCols) {
-			let v = placeTag("td", null, row);
+			let v = placeTag("td", LEGEND_VALUE, row);
 			v.textContent = "--";
 			_row.push(v);
 		}
@@ -1046,193 +1293,20 @@ function uPlot(opts, data, then) {
 		return _row;
 	}
 
-	const cursor =  (self.cursor = assign({}, cursorOpts, opts.cursor));
+	let fullWidCss = 0;
+	let fullHgtCss = 0;
 
-	 (cursor.points.show = fnOrSelf(cursor.points.show));
-
-	const focus = self.focus = assign({}, opts.focus || {alpha: 0.3},  cursor.focus);
-	const cursorFocus =  focus.prox >= 0;
-
-	// series-intersection markers
-	let cursorPts = [null];
-
-	function initCursorPt(s, si) {
-		if (si > 0) {
-			let pt = cursor.points.show(self, si);
-
-			if (pt) {
-				addClass(pt, "cursor-pt");
-				addClass(pt, s.class);
-				trans(pt, -10, -10);
-				over.insertBefore(pt, cursorPts[si]);
-
-				return pt;
-			}
-		}
-	}
-
-	function initSeries(s, i) {
-		// init scales & defaults
-		const scKey = s.scale;
-
-		const sc = scales[scKey] = assign({}, (i == 0 ? xScaleOpts : yScaleOpts), scales[scKey]);
-
-		let isTime =  sc.time;
-
-		sc.range = fnOrSelf(sc.range || (isTime ? snapTimeX : i == 0 ? snapNumX : snapNumY));
-
-		s.spanGaps = s.spanGaps === true ? retArg2 : fnOrSelf(s.spanGaps || []);
-
-		let sv = s.value;
-		s.value = isTime ? (isStr(sv) ? timeSeriesVal(_tzDate, timeSeriesStamp(sv, _fmtDate)) : sv || _timeSeriesVal) : sv || numSeriesVal;
-		s.label = s.label || (isTime ? timeSeriesLabel : numSeriesLabel);
-
-		if (i > 0) {
-			s.width = s.width == null ? 1 : s.width;
-			s.paths = s.paths || ( buildPaths);
-			let _ptDia = ptDia(s.width, 1);
-			s.points = assign({}, {
-				size: _ptDia,
-				width: max(1, _ptDia * .2),
-			}, s.points);
-			s.points.show = fnOrSelf(s.points.show);
-			s._paths = null;
-		}
-
-		if (showLegend)
-			legendRows.splice(i, 0, initLegendRow(s, i));
-
-		if ( cursor.show) {
-			let pt = initCursorPt(s, i);
-			pt && cursorPts.splice(i, 0, pt);
-		}
-	}
-
-	function addSeries(opts, si) {
-		si = si == null ? series.length : si;
-
-		opts = setDefault(opts, si, xSeriesOpts, ySeriesOpts);
-		series.splice(si, 0, opts);
-		initSeries(series[si], si);
-	}
-
-	self.addSeries = addSeries;
-
-	function delSeries(i) {
-		series.splice(i, 1);
-		 legendRows.splice(i, 1)[0][0].parentNode.remove();
-		 cursorPts.splice(i, 1)[0].remove();
-
-		// TODO: de-init no-longer-needed scales?
-	}
-
-	self.delSeries = delSeries;
-
-	series.forEach(initSeries);
-
-	// dependent scales inherit
-	for (let k in scales) {
-		let sc = scales[k];
-
-		if (sc.from != null)
-			scales[k] = assign({}, scales[sc.from], sc);
-	}
-
-	const xScaleKey = series[0].scale;
-	const xScaleDistr = scales[xScaleKey].distr;
-
-	function initAxis(axis, i) {
-		if (axis.show) {
-			let isVt = axis.side % 2;
-
-			let sc = scales[axis.scale];
-
-			// this can occur if all series specify non-default scales
-			if (sc == null) {
-				axis.scale = isVt ? series[1].scale : xScaleKey;
-				sc = scales[axis.scale];
-			}
-
-			// also set defaults for incrs & values based on axis distr
-			let isTime =  sc.time;
-
-			axis.space = fnOrSelf(axis.space);
-			axis.rotate = fnOrSelf(axis.rotate);
-			axis.incrs = fnOrSelf(axis.incrs || (          sc.distr == 2 ? intIncrs : (isTime ? timeIncrs : numIncrs)));
-			axis.split = fnOrSelf(axis.split || (isTime && sc.distr == 1 ? _timeAxisSplits : numAxisSplits));
-			let av = axis.values;
-			axis.values = isTime ? (isArr(av) ? timeAxisVals(_tzDate, timeAxisStamps(av, _fmtDate)) : av || _timeAxisVals) : av || numAxisVals;
-
-			axis.font      = pxRatioFont(axis.font);
-			axis.labelFont = pxRatioFont(axis.labelFont);
-		}
-	}
-
-	// set axis defaults
-	axes.forEach(initAxis);
-
-	let dataLen;
-
-	// rendered data window
-	let i0 = null;
-	let i1 = null;
-	const idxs = series[0].idxs;
-
-	let data0 = null;
-
-	function setData(_data, _resetScales) {
-		_data = _data || [];
-		_data[0] = _data[0] || [];
-
-		self.data = _data;
-		data = _data.slice();
-		data0 = data[0];
-		dataLen = data0.length;
-
-		if (xScaleDistr == 2)
-			data[0] = data0.map((v, i) => i);
-
-		resetYSeries();
-
-		fire("setData");
-
-		_resetScales !== false && autoScaleX();
-	}
-
-	self.setData = setData;
-
-	function autoScaleX() {
-		i0 = idxs[0] = 0;
-		i1 = idxs[1] = dataLen - 1;
-
-		let _min = xScaleDistr == 2 ? i0 : data[0][i0],
-			_max = xScaleDistr == 2 ? i1 : data[0][i1];
-
-		_setScale(xScaleKey, _min, _max);
-	}
-
-	function setCtxStyle(stroke, width, dash, fill) {
-		ctx.strokeStyle = stroke || hexBlack;
-		ctx.lineWidth = width;
-		ctx.lineJoin = "round";
-		ctx.setLineDash(dash || []);
-		ctx.fillStyle = fill || hexBlack;
-	}
-
-	let fullWidCss;
-	let fullHgtCss;
-
-	let plotWidCss;
-	let plotHgtCss;
+	let plotWidCss = 0;
+	let plotHgtCss = 0;
 
 	// plot margins to account for axes
-	let plotLftCss;
-	let plotTopCss;
+	let plotLftCss = 0;
+	let plotTopCss = 0;
 
-	let plotLft;
-	let plotTop;
-	let plotWid;
-	let plotHgt;
+	let plotLft = 0;
+	let plotTop = 0;
+	let plotWid = 0;
+	let plotHgt = 0;
 
 	self.bbox = {};
 
@@ -1370,6 +1444,180 @@ function uPlot(opts, data, then) {
 		});
 	}
 
+	const cursor =  (self.cursor = assign({}, cursorOpts, opts.cursor));
+
+	 (cursor.points.show = fnOrSelf(cursor.points.show));
+
+	const focus = self.focus = assign({}, opts.focus || {alpha: 0.3},  cursor.focus);
+	const cursorFocus =  focus.prox >= 0;
+
+	// series-intersection markers
+	let cursorPts = [null];
+
+	function initCursorPt(s, si) {
+		if (si > 0) {
+			let pt = cursor.points.show(self, si);
+
+			if (pt) {
+				addClass(pt, CURSOR_PT);
+				addClass(pt, s.class);
+				trans(pt, -10, -10, plotWidCss, plotHgtCss);
+				over.insertBefore(pt, cursorPts[si]);
+
+				return pt;
+			}
+		}
+	}
+
+	function initSeries(s, i) {
+		let isTime =  scales[s.scale].time;
+
+		let sv = s.value;
+		s.value = isTime ? (isStr(sv) ? timeSeriesVal(_tzDate, timeSeriesStamp(sv, _fmtDate)) : sv || _timeSeriesVal) : sv || numSeriesVal;
+		s.label = s.label || (isTime ? timeSeriesLabel : numSeriesLabel);
+
+		if (i > 0) {
+			s.width = s.width == null ? 1 : s.width;
+			s.paths = s.paths || ( buildPaths);
+			s.fillTo = s.fillTo || seriesFillTo;
+			let _ptDia = ptDia(s.width, 1);
+			s.points = assign({}, {
+				size: _ptDia,
+				width: max(1, _ptDia * .2),
+			}, s.points);
+			s.points.show = fnOrSelf(s.points.show);
+			s._paths = null;
+		}
+
+		if (showLegend)
+			legendRows.splice(i, 0, initLegendRow(s, i));
+
+		if ( cursor.show) {
+			let pt = initCursorPt(s, i);
+			pt && cursorPts.splice(i, 0, pt);
+		}
+	}
+
+	function addSeries(opts, si) {
+		si = si == null ? series.length : si;
+
+		opts = setDefault(opts, si, xSeriesOpts, ySeriesOpts);
+		series.splice(si, 0, opts);
+		initSeries(series[si], si);
+	}
+
+	self.addSeries = addSeries;
+
+	function delSeries(i) {
+		series.splice(i, 1);
+		 showLegend && legendRows.splice(i, 1)[0][0].parentNode.remove();
+		 cursorPts.length > 1 && cursorPts.splice(i, 1)[0].remove();
+
+		// TODO: de-init no-longer-needed scales?
+	}
+
+	self.delSeries = delSeries;
+
+	series.forEach(initSeries);
+
+	function initAxis(axis, i) {
+		if (axis.show) {
+			let isVt = axis.side % 2;
+
+			let sc = scales[axis.scale];
+
+			// this can occur if all series specify non-default scales
+			if (sc == null) {
+				axis.scale = isVt ? series[1].scale : xScaleKey;
+				sc = scales[axis.scale];
+			}
+
+			// also set defaults for incrs & values based on axis distr
+			let isTime =  sc.time;
+
+			axis.space = fnOrSelf(axis.space);
+			axis.rotate = fnOrSelf(axis.rotate);
+			axis.incrs  = fnOrSelf(axis.incrs  || (          sc.distr == 2 ? intIncrs : (isTime ? timeIncrs : numIncrs)));
+			axis.splits = fnOrSelf(axis.splits || (isTime && sc.distr == 1 ? _timeAxisSplits : sc.distr == 3 ? logAxisSplits : numAxisSplits));
+			let av = axis.values;
+			axis.values = isTime ? (isArr(av) ? timeAxisVals(_tzDate, timeAxisStamps(av, _fmtDate)) : av || _timeAxisVals) : av || numAxisVals;
+			axis.filter = fnOrSelf(axis.filter || (          sc.distr == 3 ? logAxisValsFilt : retArg1));
+
+			axis.font      = pxRatioFont(axis.font);
+			axis.labelFont = pxRatioFont(axis.labelFont);
+		}
+	}
+
+	// set axis defaults
+	axes.forEach(initAxis);
+
+	let dataLen;
+
+	// rendered data window
+	let i0 = null;
+	let i1 = null;
+	const idxs = series[0].idxs;
+
+	let data0 = null;
+
+	let forceUpdateLegend = false;
+
+	function setData(_data, _resetScales) {
+		_data = _data || [];
+		_data[0] = _data[0] || [];
+
+		self.data = _data;
+		data = _data.slice();
+		data0 = data[0];
+		dataLen = data0.length;
+
+		if (xScaleDistr == 2)
+			data[0] = data0.map((v, i) => i);
+
+		resetYSeries();
+
+		fire("setData");
+
+		forceUpdateLegend = true;
+
+		if (_resetScales !== false) {
+			let xsc = scales[xScaleKey];
+
+			if (xsc.auto)
+				autoScaleX();
+			else
+				_setScale(xScaleKey, xsc.min, xsc.max);
+		}
+	}
+
+	self.setData = setData;
+
+	function autoScaleX() {
+		let _min, _max;
+
+		if (dataLen > 0) {
+			i0 = idxs[0] = 0;
+			i1 = idxs[1] = dataLen - 1;
+
+			_min = xScaleDistr == 2 ? i0 : data[0][i0];
+			_max = xScaleDistr == 2 ? i1 : data[0][i1];
+		}
+		else {
+			i0 = idxs[0] = _min = null;
+			i1 = idxs[1] = _max = null;
+		}
+
+		_setScale(xScaleKey, _min, _max);
+	}
+
+	function setCtxStyle(stroke, width, dash, fill) {
+		ctx.strokeStyle = stroke || hexBlack;
+		ctx.lineWidth = width;
+		ctx.lineJoin = "round";
+		ctx.setLineDash(dash || []);
+		ctx.fillStyle = fill || hexBlack;
+	}
+
 	function setScales() {
 		if (inBatch) {
 			shouldSetScales = true;
@@ -1378,35 +1626,41 @@ function uPlot(opts, data, then) {
 
 	//	log("setScales()", arguments);
 
-		if (dataLen > 0) {
-			// wip scales
-			let wipScales = copy(scales);
+		// wip scales
+		let wipScales = copy(scales);
 
-			for (let k in wipScales) {
-				let wsc = wipScales[k];
-				let psc = pendScales[k];
+		for (let k in wipScales) {
+			let wsc = wipScales[k];
+			let psc = pendScales[k];
 
-				if (psc != null) {
-					assign(wsc, psc);
+			if (psc != null) {
+				assign(wsc, psc);
 
-					// explicitly setting the x-scale invalidates everything (acts as redraw)
-					if (k == xScaleKey)
-						resetYSeries();
+				// explicitly setting the x-scale invalidates everything (acts as redraw)
+				if (k == xScaleKey)
+					resetYSeries();
+			}
+			else if (k != xScaleKey) {
+				if (dataLen == 0 && wsc.from == null) {
+					let minMax = wsc.range(self, null, null, k);
+					wsc.min = minMax[0];
+					wsc.max = minMax[1];
 				}
-				else if (k != xScaleKey) {
+				else {
 					wsc.min = inf;
 					wsc.max = -inf;
 				}
 			}
+		}
 
+		if (dataLen > 0) {
 			// pre-range y-scales from y series' data values
 			series.forEach((s, i) => {
 				let k = s.scale;
 				let wsc = wipScales[k];
 
-				// setting the x scale invalidates everything
 				if (i == 0) {
-					let minMax = wsc.range(self, wsc.min, wsc.max);
+					let minMax = wsc.range(self, wsc.min, wsc.max, k);
 
 					wsc.min = minMax[0];
 					wsc.max = minMax[1];
@@ -1425,7 +1679,7 @@ function uPlot(opts, data, then) {
 				}
 				else if (s.show && pendScales[k] == null) {
 					// only run getMinMax() for invalidated series data, else reuse
-					let minMax = s.min == inf ? (wsc.auto ? getMinMax(data[i], i0, i1) : [0,100]) : [s.min, s.max];
+					let minMax = s.min == inf ? (wsc.auto && s.auto ? getMinMax(data[i], i0, i1, s.sorted) : [null,null]) : [s.min, s.max];
 
 					// initial min/max
 					wsc.min = min(wsc.min, s.min = minMax[0]);
@@ -1441,51 +1695,52 @@ function uPlot(opts, data, then) {
 				let wsc = wipScales[k];
 
 				if (wsc.from == null && wsc.min != inf && pendScales[k] == null) {
-					let minMax = wsc.range(self, wsc.min, wsc.max);
+					let minMax = wsc.range(self, wsc.min, wsc.max, k);
 					wsc.min = minMax[0];
 					wsc.max = minMax[1];
 				}
 			}
-
-			// range dependent scales
-			for (let k in wipScales) {
-				let wsc = wipScales[k];
-
-				if (wsc.from != null) {
-					let base = wipScales[wsc.from];
-
-					if (base.min != inf) {
-						let minMax = wsc.range(self, base.min, base.max);
-						wsc.min = minMax[0];
-						wsc.max = minMax[1];
-					}
-				}
-			}
-
-			let changed = {};
-
-			for (let k in wipScales) {
-				let wsc = wipScales[k];
-				let sc = scales[k];
-
-				if (sc.min != wsc.min || sc.max != wsc.max) {
-					sc.min = wsc.min;
-					sc.max = wsc.max;
-					changed[k] = true;
-				}
-
-				pendScales[k] = null;
-			}
-
-			// invalidate paths of all series on changed scales
-			series.forEach(s => {
-				if (changed[s.scale])
-					s._paths = null;
-			});
-
-			for (let k in changed)
-				fire("setScale", k);
 		}
+
+		// range dependent scales
+		for (let k in wipScales) {
+			let wsc = wipScales[k];
+
+			if (wsc.from != null) {
+				let base = wipScales[wsc.from];
+
+				if (base.min != inf) {
+					let minMax = wsc.range(self, base.min, base.max, k);
+					wsc.min = minMax[0];
+					wsc.max = minMax[1];
+				}
+			}
+		}
+
+		let changed = {};
+
+		for (let k in wipScales) {
+			let wsc = wipScales[k];
+			let sc = scales[k];
+
+			if (sc.min != wsc.min || sc.max != wsc.max) {
+				sc.min = wsc.min;
+				sc.max = wsc.max;
+				changed[k] = true;
+			}
+		}
+
+		// invalidate paths of all series on changed scales
+		series.forEach(s => {
+			if (changed[s.scale])
+				s._paths = null;
+		});
+
+		for (let k in changed)
+			fire("setScale", k);
+
+		for (let k in pendScales)
+			pendScales[k] = null;
 
 		 cursor.show && updateCursor();
 	}
@@ -1498,12 +1753,12 @@ function uPlot(opts, data, then) {
 		let s = series[si];
 		let p = s.points;
 
-		const width = round3(s[WIDTH] * pxRatio);
+		const width = roundDec(p.width * pxRatio, 3);
 		const offset = (width % 2) / 2;
 		const isStroked = p.width > 0;
 
 		let rad = (p.size - p.width) / 2 * pxRatio;
-		let dia = round3(rad * 2);
+		let dia = roundDec(rad * 2, 3);
 
 		ctx.translate(offset, offset);
 
@@ -1592,7 +1847,7 @@ function uPlot(opts, data, then) {
 
 		if (dir == 1) {
 			const { stroke, fill, clip } = s._paths;
-			const width = round3(s[WIDTH] * pxRatio);
+			const width = roundDec(s[WIDTH] * pxRatio, 3);
 			const offset = (width % 2) / 2;
 
 			setCtxStyle(s.stroke, width, s.dash, s.fill);
@@ -1647,15 +1902,24 @@ function uPlot(opts, data, then) {
 			dir *= -1;
 	}
 
-	function buildClip(is, gaps) {
+	function buildClip(is, gaps, nullHead, nullTail) {
 		let s = series[is];
-		let toSpan = new Set(s.spanGaps(self, gaps, is));
-		gaps = gaps.filter(g => !toSpan.has(g));
 
 		let clip = null;
 
 		// create clip path (invert gaps and non-gaps)
 		if (gaps.length > 0) {
+			if (s.spanGaps) {
+				let headGap = gaps[0];
+				let tailGap = gaps[gaps.length - 1];
+				gaps = [];
+
+				if (nullHead)
+					gaps.push(headGap);
+				if (nullTail)
+					gaps.push(tailGap);
+			}
+
 			clip = new Path2D();
 
 			let prevGapEnd = plotLft;
@@ -1674,6 +1938,15 @@ function uPlot(opts, data, then) {
 		return clip;
 	}
 
+	function addGap(gaps, outX, x) {
+		let prevGap = gaps[gaps.length - 1];
+
+		if (prevGap && prevGap[0] == outX)			// TODO: gaps must be encoded at stroke widths?
+			prevGap[1] = x;
+		else
+			gaps.push([outX, x]);
+	}
+
 	function buildPaths(self, is, _i0, _i1) {
 		const s = series[is];
 
@@ -1684,7 +1957,7 @@ function uPlot(opts, data, then) {
 
 		const _paths = dir == 1 ? {stroke: new Path2D(), fill: null, clip: null} : series[is-1]._paths;
 		const stroke = _paths.stroke;
-		const width = round3(s[WIDTH] * pxRatio);
+		const width = roundDec(s[WIDTH] * pxRatio, 3);
 
 		let minY = inf,
 			maxY = -inf,
@@ -1715,7 +1988,7 @@ function uPlot(opts, data, then) {
 				}
 			}
 			else {
-				let addGap = false;
+				let _addGap = false;
 
 				if (minY != inf) {
 					stroke.lineTo(accX, minY);
@@ -1724,7 +1997,7 @@ function uPlot(opts, data, then) {
 					outX = accX;
 				}
 				else
-					addGap = true;
+					_addGap = true;
 
 				if (ydata[i] != null) {
 					outY = round(getYPos(ydata[i], scaleY, plotHgt, plotTop));
@@ -1733,25 +2006,22 @@ function uPlot(opts, data, then) {
 
 					// prior pixel can have data but still start a gap if ends with null
 					if (x - accX > 1 && ydata[i-1] == null)
-						addGap = true;
+						_addGap = true;
 				}
 				else {
 					minY = inf;
 					maxY = -inf;
 				}
 
-				if (addGap) {
-					let prevGap = gaps[gaps.length - 1];
-
-					if (prevGap && prevGap[0] == outX)			// TODO: gaps must be encoded at stroke widths?
-						prevGap[1] = x;
-					else
-						gaps.push([outX, x]);
-				}
+				_addGap && addGap(gaps, outX, x);
 
 				accX = x;
 			}
 		}
+
+		// extend or insert rightmost gap if no data exists to the right
+		if (ydata[_i1] == null)
+			addGap(gaps, outX, accX);
 
 		if (s.band) {
 			let overShoot = width * 100, _iy, _x;
@@ -1774,14 +2044,14 @@ function uPlot(opts, data, then) {
 		}
 
 		if (dir == 1) {
-			_paths.clip = buildClip(is, gaps);
+			_paths.clip = buildClip(is, gaps, ydata[_i0] == null, ydata[_i1] == null);
 
 			if (s.fill != null) {
 				let fill = _paths.fill = new Path2D(stroke);
 
-				let zeroY = round(getYPos(0, scaleY, plotHgt, plotTop));
-				fill.lineTo(plotLft + plotWid, zeroY);
-				fill.lineTo(plotLft, zeroY);
+				let fillTo = round(getYPos(s.fillTo(self, is, s.min, s.max), scaleY, plotHgt, plotTop));
+				fill.lineTo(plotLft + plotWid, fillTo);
+				fill.lineTo(plotLft, fillTo);
 			}
 		}
 
@@ -1791,22 +2061,23 @@ function uPlot(opts, data, then) {
 		return _paths;
 	}
 
-	function getIncrSpace(axis, min, max, fullDim) {
+	function getIncrSpace(axisIdx, min, max, fullDim) {
+		let axis = axes[axisIdx];
+
 		let incrSpace;
 
 		if (fullDim <= 0)
 			incrSpace = [0, 0];
 		else {
-			let minSpace = axis.space(self, min, max, fullDim);
-			let incrs = axis.incrs(self, min, max, fullDim, minSpace);
-			incrSpace = findIncr(max - min, incrs, fullDim, minSpace);
-			incrSpace.push(incrSpace[1]/minSpace);
+			let minSpace = axis.space(self, axisIdx, min, max, fullDim);
+			let incrs = axis.incrs(self, axisIdx, min, max, fullDim, minSpace);
+			incrSpace = findIncr(min, max, incrs, fullDim, minSpace);
 		}
 
 		return incrSpace;
 	}
 
-	function drawOrthoLines(offs, ori, side, pos0, len, width, stroke, dash) {
+	function drawOrthoLines(offs, filts, ori, side, pos0, len, width, stroke, dash) {
 		let offset = (width % 2) / 2;
 
 		ctx.translate(offset, offset);
@@ -1827,6 +2098,9 @@ function uPlot(opts, data, then) {
 		}
 
 		offs.forEach((off, i) => {
+			if (filts[i] == null)
+				return;
+
 			if (ori == 0)
 				x0 = x1 = off;
 			else
@@ -1857,12 +2131,12 @@ function uPlot(opts, data, then) {
 
 			let {min, max} = scale;
 
-			let [incr, space, pctSpace] = getIncrSpace(axis, min, max, ori == 0 ? plotWidCss : plotHgtCss);
+			let [incr, space] = getIncrSpace(i, min, max, ori == 0 ? plotWidCss : plotHgtCss);
 
 			// if we're using index positions, force first tick to match passed index
 			let forceMin = scale.distr == 2;
 
-			let splits = axis.split(self, min, max, incr, pctSpace, forceMin);
+			let splits = axis.splits(self, i, min, max, incr, space, forceMin);
 
 			let getPos  = ori == 0 ? getXPos : getYPos;
 			let plotDim = ori == 0 ? plotWid : plotHgt;
@@ -1877,15 +2151,13 @@ function uPlot(opts, data, then) {
 
 			// tick labels
 			// BOO this assumes a specific data/series
-			let values = axis.values(
-				self,
-				scale.distr == 2 ? splits.map(i => data0[i]) : splits,
-				space,
-				scale.distr == 2 ? data0[splits[1]] -  data0[splits[0]] : incr,
-			);
+			let _splits = scale.distr == 2 ? splits.map(i => data0[i]) : splits;
+			let _incr   = scale.distr == 2 ? data0[splits[1]] - data0[splits[0]] : incr;
+
+			let values = axis.values(self, axis.filter(self, _splits, i, space, _incr), i, space, _incr);
 
 			// rotating of labels only supported on bottom x axis
-			let angle = side == 2 ? axis.rotate(self, values, space) * -PI/180 : 0;
+			let angle = side == 2 ? axis.rotate(self, values, i, space) * -PI/180 : 0;
 
 			let basePos  = round(axis._pos * pxRatio);
 			let shiftAmt = tickSize + axisGap;
@@ -1905,6 +2177,9 @@ function uPlot(opts, data, then) {
 			let lineHeight   = axis.font[1] * lineMult;
 
 			values.forEach((val, i) => {
+				if (val == null)
+					return;
+
 				if (ori == 0)
 					x = canOffs[i];
 				else
@@ -1958,11 +2233,12 @@ function uPlot(opts, data, then) {
 			if (ticks.show) {
 				drawOrthoLines(
 					canOffs,
+					ticks.filter(self, _splits, i, space, _incr),
 					ori,
 					side,
 					basePos,
 					tickSize,
-					round3(ticks[WIDTH] * pxRatio),
+					roundDec(ticks[WIDTH] * pxRatio, 3),
 					ticks.stroke,
 				);
 			}
@@ -1973,11 +2249,12 @@ function uPlot(opts, data, then) {
 			if (grid.show) {
 				drawOrthoLines(
 					canOffs,
+					grid.filter(self, _splits, i, space, _incr),
 					ori,
 					ori == 0 ? 2 : 1,
 					ori == 0 ? plotTop : plotLft,
 					ori == 0 ? plotHgt : plotWid,
-					round3(grid[WIDTH] * pxRatio),
+					roundDec(grid[WIDTH] * pxRatio, 3),
 					grid.stroke,
 					grid.dash,
 				);
@@ -2012,7 +2289,7 @@ function uPlot(opts, data, then) {
 		ctx.clearRect(0, 0, can[WIDTH], can[HEIGHT]);
 		fire("drawClear");
 		drawAxesGrid();
-		drawSeries();
+		dataLen > 0 && drawSeries();
 		didPaint = true;
 		fire("draw");
 	}
@@ -2031,8 +2308,14 @@ function uPlot(opts, data, then) {
 		let sc = scales[key];
 
 		if (sc.from == null) {
+			if (dataLen == 0) {
+				let minMax = sc.range(self, opts.min, opts.max, key);
+				opts.min = minMax[0];
+				opts.max = minMax[1];
+			}
+
 			if (key == xScaleKey) {
-				if (sc.distr == 2) {
+				if (sc.distr == 2 && dataLen > 0) {
 					opts.min = closestIdx(opts.min, data[0]);
 					opts.max = closestIdx(opts.max, data[0]);
 				}
@@ -2040,12 +2323,15 @@ function uPlot(opts, data, then) {
 				// prevent setting a temporal x scale too small since Date objects cannot advance ticks smaller than 1ms
 				if ( sc.time && axes[0].show && opts.max > opts.min) {
 					// since scales and axes are loosly coupled, we have to make some assumptions here :(
-					let incr = getIncrSpace(axes[0], opts.min, opts.max, plotWidCss)[0];
+					let incr = getIncrSpace(0, opts.min, opts.max, plotWidCss)[0];
 
 					if (incr < 1e-3)
 						return;
 				}
 			}
+
+			if (dataLen > 1 && opts.max - opts.min < 1e-16)
+				return;
 
 		//	log("setScale()", arguments);
 
@@ -2065,9 +2351,17 @@ function uPlot(opts, data, then) {
 	let vt;
 	let hz;
 
+	// starting position before cursor.move
+	let rawMouseLeft0;
+	let rawMouseTop0;
+
 	// starting position
 	let mouseLeft0;
 	let mouseTop0;
+
+	// current position before cursor.move
+	let rawMouseLeft1;
+	let rawMouseTop1;
 
 	// current position
 	let mouseLeft1;
@@ -2079,29 +2373,29 @@ function uPlot(opts, data, then) {
 
 	let dragX =  drag.x;
 	let dragY =  drag.y;
-	if ( cursor.show) {
-		let c = "cursor-";
 
+	if ( cursor.show) {
 		if (cursor.x) {
 			mouseLeft1 = cursor.left;
-			vt = placeDiv(c + "x", over);
+			vt = placeDiv(CURSOR_X, over);
 		}
 
 		if (cursor.y) {
 			mouseTop1 = cursor.top;
-			hz = placeDiv(c + "y", over);
+			hz = placeDiv(CURSOR_Y, over);
 		}
 	}
 
 	const select = self.select = assign({
 		show:   true,
+		over:   true,
 		left:	0,
 		width:	0,
 		top:	0,
 		height:	0,
 	}, opts.select);
 
-	const selectDiv = select.show ? placeDiv("select", over) : null;
+	const selectDiv = select.show ? placeDiv(SELECT, select.over ? over : under) : null;
 
 	function setSelect(opts, _fire) {
 		if (select.show) {
@@ -2119,10 +2413,10 @@ function uPlot(opts, data, then) {
 		let label = showLegend ? legendRows[i][0].parentNode : null;
 
 		if (s.show)
-			label && remClass(label, "off");
+			label && remClass(label, OFF);
 		else {
-			label && addClass(label, "off");
-			 cursorPts.length > 1 && trans(cursorPts[i], 0, -10);
+			label && addClass(label, OFF);
+			 cursorPts.length > 1 && trans(cursorPts[i], -10, -10, plotWidCss, plotHgtCss);
 		}
 	}
 
@@ -2167,7 +2461,10 @@ function uPlot(opts, data, then) {
 	function _alpha(i, value) {
 		series[i].alpha = value;
 
-		if ( legendRows)
+		if ( cursor.show && cursorPts[i])
+			cursorPts[i].style.opacity = value;
+
+		if ( showLegend && legendRows[i])
 			legendRows[i][0].parentNode.style.opacity = value;
 	}
 
@@ -2184,19 +2481,19 @@ function uPlot(opts, data, then) {
 	}
 
 	// y-distance
-	const distsToCursor =  Array(series.length);
-
-	let focused = null;
+	let closestDist;
+	let closestSeries;
+	let focusedSeries;
 
 	function setFocus(i) {
-		if (i != focused) {
+		if (i != focusedSeries) {
 		//	log("setFocus()", arguments);
 
 			series.forEach((s, i2) => {
 				_setAlpha(i2, i == null || i2 == 0 || i2 == i ? 1 : focus.alpha);
 			});
 
-			focused = i;
+			focusedSeries = i;
 			paint();
 		}
 	}
@@ -2211,12 +2508,26 @@ function uPlot(opts, data, then) {
 	}
 
 	function scaleValueAtPos(pos, scale) {
-		let dim = scale == xScaleKey ? plotWidCss : plotHgtCss;
-		let pct = clamp(pos / dim, 0, 1);
+		let dim = plotWidCss;
 
-		let sc = scales[scale];
-		let d = sc.max - sc.min;
-		return sc.min + pct * d;
+		if (scale != xScaleKey) {
+			dim = plotHgtCss;
+			pos = dim - pos;
+		}
+
+		let pct = pos / dim;
+
+		let sc = scales[scale],
+			_min = sc.min,
+			_max = sc.max;
+
+		if (sc.distr == 3) {
+			_min = log10(_min);
+			_max = log10(_max);
+			return pow(10, _min + (_max - _min) * pct);
+		}
+		else
+			return _min + (_max - _min) * pct;
 	}
 
 	function closestIdxFromXpos(pos) {
@@ -2226,7 +2537,7 @@ function uPlot(opts, data, then) {
 
 	self.valToIdx = val => closestIdx(val, data[0]);
 	self.posToIdx = closestIdxFromXpos;
-	self.posToVal = (pos, scale) => scaleValueAtPos(scale == xScaleKey ? pos : plotHgtCss - pos, scale);
+	self.posToVal = scaleValueAtPos;
 	self.valToPos = (val, scale, can) => (
 		scale == xScaleKey ?
 		getXPos(val, scales[scale],
@@ -2266,7 +2577,7 @@ function uPlot(opts, data, then) {
 
 	let cursorRaf = 0;
 
-	function updateCursor(ts) {
+	function updateCursor(ts, src) {
 		if (inBatch) {
 			shouldUpdateCursor = true;
 			return;
@@ -2276,24 +2587,34 @@ function uPlot(opts, data, then) {
 
 		cursorRaf = 0;
 
+		rawMouseLeft1 = mouseLeft1;
+		rawMouseTop1 = mouseTop1;
+
+		[mouseLeft1, mouseTop1] = cursor.move(self, mouseLeft1, mouseTop1);
+
 		if (cursor.show) {
-			cursor.x && trans(vt,round(mouseLeft1),0);
-			cursor.y && trans(hz,0,round(mouseTop1));
+			cursor.x && trans(vt, round(mouseLeft1), 0, plotWidCss, plotHgtCss);
+			cursor.y && trans(hz, 0, round(mouseTop1), plotWidCss, plotHgtCss);
 		}
 
 		let idx;
 
+		// when zooming to an x scale range between datapoints the binary search
+		// for nearest min/max indices results in this condition. cheap hack :D
+		let noDataInRange = i0 > i1;
+
+		closestDist = inf;
+
 		// if cursor hidden, hide points & clear legend vals
-		if (mouseLeft1 < 0 || dataLen == 0) {
+		if (mouseLeft1 < 0 || dataLen == 0 || noDataInRange) {
 			idx = null;
 
 			for (let i = 0; i < series.length; i++) {
 				if (i > 0) {
-					distsToCursor[i] = inf;
-					 cursorPts.length > 1 && trans(cursorPts[i], -10, -10);
+					 cursorPts.length > 1 && trans(cursorPts[i], -10, -10, plotWidCss, plotHgtCss);
 				}
 
-				if (showLegend) {
+				if (showLegend && legend.live) {
 					if (i == 0 && multiValLegend)
 						continue;
 
@@ -2308,34 +2629,44 @@ function uPlot(opts, data, then) {
 		else {
 		//	let pctY = 1 - (y / rect[HEIGHT]);
 
-			idx = closestIdxFromXpos(mouseLeft1);
+			let valAtPos = scaleValueAtPos(mouseLeft1, xScaleKey);
+
+			idx = closestIdx(valAtPos, data[0], i0, i1);
 
 			let scX = scales[xScaleKey];
 
-			let xPos = round3(getXPos(data[0][idx], scX, plotWidCss, 0));
+			let xPos = roundDec(getXPos(data[0][idx], scX, plotWidCss, 0), 3);
 
 			for (let i = 0; i < series.length; i++) {
 				let s = series[i];
 
+				let idx2  = cursor.dataIdx(self, i, idx, valAtPos);
+				let xPos2 = idx2 == idx ? xPos : roundDec(getXPos(data[0][idx2], scX, plotWidCss, 0), 3);
+
 				if (i > 0 && s.show) {
-					let valAtIdx = data[i][idx];
+					let valAtIdx = data[i][idx2];
 
-					let yPos = valAtIdx == null ? -10 : round3(getYPos(valAtIdx, scales[s.scale], plotHgtCss, 0));
+					let yPos = valAtIdx == null ? -10 : roundDec(getYPos(valAtIdx, scales[s.scale], plotHgtCss, 0), 3);
 
-					distsToCursor[i] = yPos > 0 ? abs(yPos - mouseTop1) : inf;
+					if (yPos > 0) {
+						let dist = abs(yPos - mouseTop1);
 
-					 cursorPts.length > 1 && trans(cursorPts[i], xPos, yPos);
+						if (dist <= closestDist) {
+							closestDist = dist;
+							closestSeries = i;
+						}
+					}
+
+					 cursorPts.length > 1 && trans(cursorPts[i], xPos2, yPos, plotWidCss, plotHgtCss);
 				}
-				else
-					distsToCursor[i] = inf;
 
-				if (showLegend) {
-					if (i == 0 && multiValLegend)
+				if (showLegend && legend.live) {
+					if ((idx2 == cursor.idx && !forceUpdateLegend) || i == 0 && multiValLegend)
 						continue;
 
 					let src = i == 0 && xScaleDistr == 2 ? data0 : data[i];
 
-					let vals = multiValLegend ? s.values(self, i, idx) : {_: s.value(self, src[idx], i, idx)};
+					let vals = multiValLegend ? s.values(self, i, idx2) : {_: s.value(self, src[idx2], i, idx2)};
 
 					let j = 0;
 
@@ -2343,57 +2674,121 @@ function uPlot(opts, data, then) {
 						legendRows[i][j++][firstChild].nodeValue = vals[k];
 				}
 			}
+
+			forceUpdateLegend = false;
 		}
 
 		// nit: cursor.drag.setSelect is assumed always true
-		if (mouseLeft1 >= 0 && select.show && dragging) {
-			// setSelect should not be triggered on move events
+		if (select.show && dragging) {
+			if (src != null) {
+				let [xKey, yKey] = syncOpts.scales;
 
-			dragX = drag.x;
-			dragY = drag.y;
+				// match the dragX/dragY implicitness/explicitness of src
+				let sdrag = src.cursor.drag;
+				dragX = sdrag._x;
+				dragY = sdrag._y;
 
-			let uni = drag.uni;
+				if (xKey) {
+					let sc = scales[xKey];
+					let srcLeft = src.posToVal(src.select[LEFT], xKey);
+					let srcRight = src.posToVal(src.select[LEFT] + src.select[WIDTH], xKey);
 
-			if (uni != null) {
-				let dx = abs(mouseLeft0 - mouseLeft1);
-				let dy = abs(mouseTop0 - mouseTop1);
+					select[LEFT] = getXPos(srcLeft, sc, plotWidCss, 0);
+					select[WIDTH] = abs(select[LEFT] - getXPos(srcRight, sc, plotWidCss, 0));
 
-				dragX = dx >= uni;
-				dragY = dy >= uni;
+					setStylePx(selectDiv, LEFT, select[LEFT]);
+					setStylePx(selectDiv, WIDTH, select[WIDTH]);
 
-				// force unidirectionality when both are under uni limit
+					if (!yKey) {
+						setStylePx(selectDiv, TOP, select[TOP] = 0);
+						setStylePx(selectDiv, HEIGHT, select[HEIGHT] = plotHgtCss);
+					}
+				}
+
+				if (yKey) {
+					let sc = scales[yKey];
+					let srcTop = src.posToVal(src.select[TOP], yKey);
+					let srcBottom = src.posToVal(src.select[TOP] + src.select[HEIGHT], yKey);
+
+					select[TOP] = getYPos(srcTop, sc, plotHgtCss, 0);
+					select[HEIGHT] = abs(select[TOP] - getYPos(srcBottom, sc, plotHgtCss, 0));
+
+					setStylePx(selectDiv, TOP, select[TOP]);
+					setStylePx(selectDiv, HEIGHT, select[HEIGHT]);
+
+					if (!xKey) {
+						setStylePx(selectDiv, LEFT, select[LEFT] = 0);
+						setStylePx(selectDiv, WIDTH, select[WIDTH] = plotWidCss);
+					}
+				}
+			}
+			else {
+				let rawDX = abs(rawMouseLeft1 - rawMouseLeft0);
+				let rawDY = abs(rawMouseTop1 - rawMouseTop0);
+
+				dragX = drag.x && rawDX >= drag.dist;
+				dragY = drag.y && rawDY >= drag.dist;
+
+				let uni = drag.uni;
+
+				if (uni != null) {
+					// only calc drag status if they pass the dist thresh
+					if (dragX && dragY) {
+						dragX = rawDX >= uni;
+						dragY = rawDY >= uni;
+
+						// force unidirectionality when both are under uni limit
+						if (!dragX && !dragY) {
+							if (rawDY > rawDX)
+								dragY = true;
+							else
+								dragX = true;
+						}
+					}
+				}
+				else if (drag.x && drag.y && (dragX || dragY))
+					// if omni with no uni then both dragX / dragY should be true if either is true
+					dragX = dragY = true;
+
+				if (dragX) {
+					let minX = min(mouseLeft0, mouseLeft1);
+					let dx = abs(mouseLeft1 - mouseLeft0);
+
+					setStylePx(selectDiv, LEFT,  select[LEFT] = minX);
+					setStylePx(selectDiv, WIDTH, select[WIDTH] = dx);
+
+					if (!dragY) {
+						setStylePx(selectDiv, TOP, select[TOP] = 0);
+						setStylePx(selectDiv, HEIGHT, select[HEIGHT] = plotHgtCss);
+					}
+				}
+
+				if (dragY) {
+					let minY = min(mouseTop0, mouseTop1);
+					let dy = abs(mouseTop1 - mouseTop0);
+
+					setStylePx(selectDiv, TOP,    select[TOP] = minY);
+					setStylePx(selectDiv, HEIGHT, select[HEIGHT] = dy);
+
+					if (!dragX) {
+						setStylePx(selectDiv, LEFT, select[LEFT] = 0);
+						setStylePx(selectDiv, WIDTH, select[WIDTH] = plotWidCss);
+					}
+				}
+
 				if (!dragX && !dragY) {
-					if (dy > dx)
-						dragY = true;
-					else
-						dragX = true;
-				}
-			}
-
-			if (dragX) {
-				let minX = min(mouseLeft0, mouseLeft1);
-				let maxX = max(mouseLeft0, mouseLeft1);
-				setStylePx(selectDiv, LEFT,  select[LEFT] = minX);
-				setStylePx(selectDiv, WIDTH, select[WIDTH] = maxX - minX);
-
-				if (uni != null && !dragY) {
-					setStylePx(selectDiv, TOP, select[TOP] = 0);
-					setStylePx(selectDiv, HEIGHT, select[HEIGHT] = plotHgtCss);
-				}
-			}
-
-			if (dragY) {
-				let minY = min(mouseTop0, mouseTop1);
-				let maxY = max(mouseTop0, mouseTop1);
-				setStylePx(selectDiv, TOP,    select[TOP] = minY);
-				setStylePx(selectDiv, HEIGHT, select[HEIGHT] = maxY - minY);
-
-				if (uni != null && !dragX) {
-					setStylePx(selectDiv, LEFT, select[LEFT] = 0);
-					setStylePx(selectDiv, WIDTH, select[WIDTH] = plotWidCss);
+					// the drag didn't pass the dist requirement
+					setStylePx(selectDiv, HEIGHT, select[HEIGHT] = 0);
+					setStylePx(selectDiv, WIDTH,  select[WIDTH]  = 0);
 				}
 			}
 		}
+
+		cursor.idx = idx;
+		cursor.left = mouseLeft1;
+		cursor.top = mouseTop1;
+		drag._x = dragX;
+		drag._y = dragY;
 
 		// if ts is present, means we're implicitly syncing own cursor as a result of debounced rAF
 		if (ts != null) {
@@ -2402,24 +2797,9 @@ function uPlot(opts, data, then) {
 			sync.pub(mousemove, self, mouseLeft1, mouseTop1, plotWidCss, plotHgtCss, idx);
 
 			if (cursorFocus) {
-				let minDist = min.apply(null, distsToCursor);
-
-				let fi = null;
-
-				if (minDist <= focus.prox) {
-					distsToCursor.some((dist, i) => {
-						if (dist == minDist)
-							return fi = i;
-					});
-				}
-
-				setSeries(fi, {focus: true}, syncOpts.setSeries);
+				setSeries(closestDist <= focus.prox ? closestSeries : null, {focus: true}, syncOpts.setSeries);
 			}
 		}
-
-		cursor.idx = idx;
-		cursor.left = mouseLeft1;
-		cursor.top = mouseTop1;
 
 		ready && fire("setCursor");
 	}
@@ -2441,7 +2821,7 @@ function uPlot(opts, data, then) {
 				cursorRaf = rAF(updateCursor);
 		}
 		else
-			updateCursor();
+			updateCursor(null, src);
 	}
 
 	function cacheMouse(e, src, _x, _y, _w, _h, _i, initial, snap) {
@@ -2450,8 +2830,23 @@ function uPlot(opts, data, then) {
 			_y = e.clientY - rect.top;
 		}
 		else {
-			_x = plotWidCss * (_x/_w);
-			_y = plotHgtCss * (_y/_h);
+			if (_x < 0 || _y < 0) {
+				mouseLeft1 = -10;
+				mouseTop1 = -10;
+				return;
+			}
+
+			let [xKey, yKey] = syncOpts.scales;
+
+			if (xKey != null)
+				_x = getXPos(src.posToVal(_x, xKey), scales[xKey], plotWidCss, 0);
+			else
+				_x = plotWidCss * (_x/_w);
+
+			if (yKey != null)
+				_y = getYPos(src.posToVal(_y, yKey), scales[yKey], plotHgtCss, 0);
+			else
+				_y = plotHgtCss * (_y/_h);
 		}
 
 		if (snap) {
@@ -2463,8 +2858,10 @@ function uPlot(opts, data, then) {
 		}
 
 		if (initial) {
-			mouseLeft0 = _x;
-			mouseTop0 = _y;
+			rawMouseLeft0 = _x;
+			rawMouseTop0 = _y;
+
+			[mouseLeft0, mouseTop0] = cursor.move(self, _x, _y);
 		}
 		else {
 			mouseLeft1 = _x;
@@ -2474,19 +2871,17 @@ function uPlot(opts, data, then) {
 
 	function hideSelect() {
 		setSelect({
-			width:	!drag.x ? plotWidCss : 0,
-			height:	!drag.y ? plotHgtCss : 0,
+			width: 0,
+			height: 0,
 		}, false);
 	}
 
 	function mouseDown(e, src, _x, _y, _w, _h, _i) {
-		if (e == null || filtMouse(e)) {
+		if (src != null || filtMouse(e)) {
 			dragging = true;
+			dragX = dragY = drag._x = drag._y = false;
 
-			cacheMouse(e, src, _x, _y, _w, _h, _i, true, true);
-
-			if (select.show && (drag.x || drag.y))
-				hideSelect();
+			cacheMouse(e, src, _x, _y, _w, _h, _i, true, false);
 
 			if (e != null) {
 				on(mouseup, doc, mouseUp);
@@ -2496,39 +2891,44 @@ function uPlot(opts, data, then) {
 	}
 
 	function mouseUp(e, src, _x, _y, _w, _h, _i) {
-		if ((e == null || filtMouse(e))) {
-			dragging = false;
+		if (src != null || filtMouse(e)) {
+			dragging = drag._x = drag._y = false;
 
 			cacheMouse(e, src, _x, _y, _w, _h, _i, false, true);
 
-			if (mouseLeft1 != mouseLeft0 || mouseTop1 != mouseTop0) {
-				setSelect(select);
+			let hasSelect = select[WIDTH] > 0 || select[HEIGHT] > 0;
 
-				if (drag.setScale) {
-					batch(() => {
-						if (dragX) {
-							_setScale(xScaleKey,
-								scaleValueAtPos(select[LEFT], xScaleKey),
-								scaleValueAtPos(select[LEFT] + select[WIDTH], xScaleKey),
-							);
-						}
+			hasSelect && setSelect(select);
 
-						if (dragY) {
-							for (let k in scales) {
-								let sc = scales[k];
+			if (drag.setScale && hasSelect) {
+			//	if (syncKey != null) {
+			//		dragX = drag.x;
+			//		dragY = drag.y;
+			//	}
 
-								if (k != xScaleKey && sc.from == null) {
-									_setScale(k,
-										scaleValueAtPos(plotHgtCss - select[TOP] - select[HEIGHT], k),
-										scaleValueAtPos(plotHgtCss - select[TOP], k),
-									);
-								}
+				batch(() => {
+					if (dragX) {
+						_setScale(xScaleKey,
+							scaleValueAtPos(select[LEFT], xScaleKey),
+							scaleValueAtPos(select[LEFT] + select[WIDTH], xScaleKey)
+						);
+					}
+
+					if (dragY) {
+						for (let k in scales) {
+							let sc = scales[k];
+
+							if (k != xScaleKey && sc.from == null) {
+								_setScale(k,
+									scaleValueAtPos(select[TOP] + select[HEIGHT], k),
+									scaleValueAtPos(select[TOP], k)
+								);
 							}
 						}
-					});
+					}
+				});
 
-					hideSelect();
-				}
+				hideSelect();
 			}
 			else if (cursor.lock) {
 				cursor.locked = !cursor.locked;
@@ -2536,25 +2936,74 @@ function uPlot(opts, data, then) {
 				if (!cursor.locked)
 					updateCursor();
 			}
+		}
 
-			if (e != null) {
-				off(mouseup, doc, mouseUp);
-				sync.pub(mouseup, self, mouseLeft1, mouseTop1, plotWidCss, plotHgtCss, null);
-			}
+		if (e != null) {
+			off(mouseup, doc, mouseUp);
+			sync.pub(mouseup, self, mouseLeft1, mouseTop1, plotWidCss, plotHgtCss, null);
 		}
 	}
 
 	function mouseLeave(e, src, _x, _y, _w, _h, _i) {
-		if (!cursor.locked && !dragging) {
+		if (!cursor.locked) {
+			let _dragging = dragging;
+
+			if (dragging) {
+				// handle case when mousemove aren't fired all the way to edges by browser
+				let snapX = true;
+				let snapY = true;
+				let snapProx = 10;
+
+				if (dragX && dragY) {
+					// maybe omni corner snap
+					snapX = mouseLeft1 <= snapProx || mouseLeft1 >= plotWidCss - snapProx;
+					snapY = mouseTop1  <= snapProx || mouseTop1  >= plotHgtCss - snapProx;
+				}
+
+				if (dragX && snapX) {
+					let dLft = mouseLeft1;
+					let dRgt = plotWidCss - mouseLeft1;
+
+					let xMin = min(dLft, dRgt);
+
+					if (xMin == dLft)
+						mouseLeft1 = 0;
+					if (xMin == dRgt)
+						mouseLeft1 = plotWidCss;
+				}
+
+				if (dragY && snapY) {
+					let dTop = mouseTop1;
+					let dBtm = plotHgtCss - mouseTop1;
+
+					let yMin = min(dTop, dBtm);
+
+					if (yMin == dTop)
+						mouseTop1 = 0;
+					if (yMin == dBtm)
+						mouseTop1 = plotHgtCss;
+				}
+
+				updateCursor(1);
+
+				dragging = false;
+			}
+
 			mouseLeft1 = -10;
 			mouseTop1 = -10;
+
 			// passing a non-null timestamp to force sync/mousemove event
 			updateCursor(1);
+
+			if (_dragging)
+				dragging = _dragging;
 		}
 	}
 
 	function dblClick(e, src, _x, _y, _w, _h, _i) {
 		autoScaleX();
+
+		hideSelect();
 
 		if (e != null)
 			sync.pub(dblclick, self, mouseLeft1, mouseTop1, plotWidCss, plotHgtCss, null);
@@ -2577,8 +3026,10 @@ function uPlot(opts, data, then) {
 		on(mousedown, over, mouseDown);
 		on(mousemove, over, mouseMove);
 		on(mouseenter, over, syncRect);
-		on(mouseleave, over, mouseLeave);
-		drag.setScale && on(dblclick, over, dblClick);
+		// this has to be rAF'd so it always fires after the last queued/rAF'd updateCursor
+		on(mouseleave, over, e => { rAF(mouseLeave); });
+
+		on(dblclick, over, dblClick);
 
 		deb = debounce(syncRect, 100);
 
@@ -2607,6 +3058,7 @@ function uPlot(opts, data, then) {
 	const syncOpts =  assign({
 		key: null,
 		setSeries: false,
+		scales: [xScaleKey, null]
 	}, cursor.sync);
 
 	const syncKey =  syncOpts.key;
@@ -2665,7 +3117,9 @@ function uPlot(opts, data, then) {
 }
 
 uPlot.assign = assign;
+uPlot.fmtNum = fmtNum;
 uPlot.rangeNum = rangeNum;
+uPlot.rangeLog = rangeLog;
 
 {
 	uPlot.fmtDate = fmtDate;
