@@ -1,13 +1,16 @@
 declare class uPlot {
 	/** when passing a function for @targ, call init() after attaching self.root to the DOM */
 	constructor(
-		opts: uPlot.Options,
-		data: uPlot.AlignedData,
+		opts: Options,
+		data?: Data,
 		targ?: HTMLElement | ((self: uPlot, init: Function) => void)
 	);
 
 	/** chart container */
 	readonly root: HTMLElement;
+
+	/** status */
+	readonly status: 0 | 1;
 
 	/** width of the plotting area + axes in CSS pixels */
 	readonly width: number;
@@ -21,33 +24,33 @@ declare class uPlot {
 	readonly ctx: CanvasRenderingContext2D;
 
 	/** coords of plotting area in canvas pixels (relative to full canvas w/axes) */
-	readonly bbox: uPlot.BBox;
+	readonly bbox: BBox;
 
 	/** coords of selected region in CSS pixels (relative to plotting area) */
-	readonly select: uPlot.BBox;
+	readonly select: BBox;
 
 	/** cursor state & opts*/
-	readonly cursor: uPlot.Cursor;
+	readonly cursor: Cursor;
 
 //	/** focus opts */
-//	readonly focus: uPlot.Focus;
+//	readonly focus: Focus;
 
 	/** series state & opts */
-	readonly series: Array<uPlot.Series>;
+	readonly series: Series[];
 
 	/** scales state & opts */
 	readonly scales: {
-		[key: string]: uPlot.Scale;
+		[key: string]: Scale;
 	};
 
 	/** axes state & opts */
-	readonly axes: Array<uPlot.Axis>;
+	readonly axes: Axis[];
 
 	/** hooks, including any added by plugins */
-	readonly hooks: uPlot.Hooks;
+	readonly hooks: Hooks.Arrays;
 
 	/** current data */
-	readonly data: uPlot.AlignedData;
+	readonly data: AlignedData;
 
 
 	/** clears and redraws the canvas. if rebuildPaths = false, uses cached series' Path2D objects */
@@ -60,7 +63,7 @@ declare class uPlot {
 	destroy(): void;
 
 	/** sets the chart data & redraws. (default resetScales = true) */
-	setData(data: uPlot.AlignedData, resetScales?: boolean): void;
+	setData(data: Data, resetScales?: boolean): void;
 
 	/** sets the limits of a scale & redraws (used for zooming) */
 	setScale(scaleKey: string, limits: { min: number; max: number }): void;
@@ -73,7 +76,7 @@ declare class uPlot {
 	setSeries(seriesIdx: number, opts: {show?: boolean, focus?: boolean}): void;
 
 	/** adds a series */
-	addSeries(opts: uPlot.Series, seriesIdx?: number): void;
+	addSeries(opts: Series, seriesIdx?: number): void;
 
 	/** deletes a series */
 	delSeries(seriesIdx: number): void;
@@ -99,400 +102,544 @@ declare class uPlot {
 	/** updates getBoundingClientRect() cache for cursor positioning. use when plot's position changes (excluding window scroll & resize) */
 	syncRect(): void;
 
+	/** uPlot's default line path builder (handles nulls/gaps & data decimation) */
+	paths: Series.PathBuilder;
+
 	/** a deep merge util fn */
 	static assign(targ: object, ...srcs: object[]): object;
 
 	/** re-ranges a given min/max by a multiple of the range's magnitude (used internally to expand/snap/pad numeric y scales) */
-	static rangeNum(min: number, max: number, mult: number, extra: boolean): uPlot.MinMax;
+	static rangeNum: ((min: number, max: number, mult: number, extra: boolean) => Range.MinMax) | ((min: number, max: number, cfg: Range.Config) => Range.MinMax);
 
 	/** re-ranges a given min/max outwards to nearest 10% of given min/max's magnitudes, unless fullMags = true */
-	static rangeLog(min: number, max: number, fullMags: boolean): uPlot.MinMax;
+	static rangeLog(min: number, max: number, fullMags: boolean): Range.MinMax;
 
 	/** default numeric formatter using browser's locale: new Intl.NumberFormat(navigator.language).format */
 	static fmtNum(val: number): string;
 
 	/** creates an efficient formatter for Date objects from a template string, e.g. {YYYY}-{MM}-{DD} */
-	static fmtDate(tpl: string, names?: uPlot.DateNames): (date: Date) => string;
+	static fmtDate(tpl: string, names?: DateNames): (date: Date) => string;
 
 	/** converts a Date into new Date that's time-adjusted for the given IANA Time Zone Name */
 	static tzDate(date: Date, tzName: string): Date;
 }
 
-declare namespace uPlot {
-	export type AlignedData = readonly (number | null)[][];
+export type AlignedData = [
+	xValues: number[],
+	...yValues: (number | null)[][],
+]
 
-	export type SyncScales = [string, string];
+export interface AlignedDataWithGapTest {
+	data: AlignedData | null,
+	isGap: Series.isGap,
+}
 
-	export type MinMax = [number, number];
+export type Data = AlignedData | AlignedDataWithGapTest;
 
-	export type LeftTop = [number, number];
+export interface DateNames {
+	/** long month names */
+	MMMM: string[];
 
-	export interface DateNames {
-		/** long month names */
-		MMMM: string[];
+	/** short month names */
+	MMM:  string[];
 
-		/** short month names */
-		MMM:  string[];
+	/** long weekday names (0: Sunday) */
+	WWWW: string[];
 
-		/** long weekday names (0: Sunday) */
-		WWWW: string[];
+	/** short weekday names (0: Sun) */
+	WWW:  string[];
+}
 
-		/** short weekday names (0: Sun) */
-		WWW:  string[];
+export namespace Range {
+	export type MinMax = [min: number, max: number];
+
+	export type Function = (self: uPlot, initMin: number, initMax: number, scaleKey: string) => MinMax;
+
+	export const enum SoftMode {
+		Off    = 0,
+		Always = 1,
+		Near   = 2,
 	}
 
-//	export type ScatteredData = readonly number[][][];
+	export interface Limit {
+		/** initial multiplier for dataMax-dataMin delta */
+		pad?: number; // 0.1
 
-	export interface Options {
-		/** chart title */
-		title?: string;
+		/** soft limit */
+		soft?: number; // 0
 
-		/** id to set on chart div */
-		id?: string;
+		/** soft mode - 0: off, 1: if data extreme falls within soft limit, 2: if data extreme & padding exceeds soft limit */
+		mode?: SoftMode; // 2
 
-		/** className to add to chart div */
-		class?: string;
-
-		/** width of plotting area + axes in CSS pixels */
-		width: number;
-
-		/** height of plotting area + axes in CSS pixels (excludes title & legend height) */
-		height: number;
-
-		/** data for chart, if none is provided as argument to constructor */
-		data?: AlignedData,
-
-		/** converts a unix timestamp to Date that's time-adjusted for the desired timezone */
-		tzDate?: (ts: number) => Date;
-
-		/** creates an efficient formatter for Date objects from a template string, e.g. {YYYY}-{MM}-{DD} */
-		fmtDate?: (tpl: string) => (date: Date) => string;
-
-		series: Series[];
-
-		scales?: {
-			[key: string]: Scale;
-		},
-
-		axes?: Axis[];
-
-		/** extra space to add in CSS pixels in the absence of a cross-axis (to prevent axis labels at the plotting area limits from being chopped off) */
-		gutters?: {
-			x?: number;
-			y?: number;
-		};
-
-		select?: Select;
-
-		legend?: {
-			show?: boolean;	// true
-			/** show series values at current cursor.idx */
-			live?: boolean;	// true
-		};
-
-		cursor?: Cursor;
-
-		focus?: Focus;
-
-		hooks?: Hooks;
-
-		plugins?: {
-			/** can mutate provided opts as necessary */
-			opts?: (self: uPlot, opts: Options) => void;
-			hooks: PluginHooks;
-		}[];
+		/** hard limit */
+		hard?: number;
 	}
 
-	interface Focus {
-		/** alpha-transparancy of de-focused series */
-		alpha: number;
+	export interface Config {
+		min: Range.Limit;
+		max: Range.Limit;
+	}
+}
+
+export interface Scales {
+	[key: string]: Scale;
+}
+
+export interface Gutters {
+	x?: number | ((self: uPlot) => number);
+	y?: number | ((self: uPlot) => number);
+}
+
+export interface Legend {
+	show?: boolean;	// true
+	/** show series values at current cursor.idx */
+	live?: boolean;	// true
+}
+
+export type DateFormatterFactory = (tpl: string) => (date: Date) => string;
+
+export type LocalDateFromUnix = (ts: number) => Date;
+
+export interface Options {
+	/** chart title */
+	title?: string;
+
+	/** id to set on chart div */
+	id?: string;
+
+	/** className to add to chart div */
+	class?: string;
+
+	/** width of plotting area + axes in CSS pixels */
+	width: number;
+
+	/** height of plotting area + axes in CSS pixels (excludes title & legend height) */
+	height: number;
+
+	/** data for chart, if none is provided as argument to constructor */
+	data?: AlignedData,
+
+	/** converts a unix timestamp to Date that's time-adjusted for the desired timezone */
+	tzDate?: LocalDateFromUnix;
+
+	/** creates an efficient formatter for Date objects from a template string, e.g. {YYYY}-{MM}-{DD} */
+	fmtDate?: DateFormatterFactory;
+
+	series: Series[];
+
+	scales?: Scales;
+
+	axes?: Axis[];
+
+	/** extra space to add in CSS pixels in the absence of a cross-axis (to prevent axis labels at the plotting area limits from being chopped off) */
+	gutters?: Gutters;
+
+	select?: Select;
+
+	legend?: Legend;
+
+	cursor?: Cursor;
+
+	focus?: Focus;
+
+	hooks?: Hooks.Arrays;
+
+	plugins?: Plugin[];
+}
+
+export interface Focus {
+	/** alpha-transparancy of de-focused series */
+	alpha: number;
+}
+
+export interface BBox {
+	show?: boolean;
+	left: number;
+	top: number;
+	width: number;
+	height: number;
+}
+
+interface Select extends BBox {
+	/** div into which .u-select will be placed: .u-over or .u-under */
+	over?: boolean; // true
+}
+
+export namespace Cursor {
+	export type LeftTop              = [left: number, top: number];
+
+	export type MouseListener        = (e: MouseEvent) => null;
+
+	export type MouseListenerFactory = (self: uPlot, targ: HTMLElement, handler: MouseListener) => MouseListener | null;
+
+	export type DataIdxRefiner       = (self: uPlot, seriesIdx: number, closestIdx: number, xValue: number) => number;
+
+	export type MousePosRefiner      = (self: uPlot, mouseLeft: number, mouseTop: number) => LeftTop;
+
+	export interface Bind {
+		mousedown?:   MouseListenerFactory,
+		mouseup?:     MouseListenerFactory,
+		click?:       MouseListenerFactory,
+		dblclick?:    MouseListenerFactory,
+
+		mousemove?:   MouseListenerFactory,
+		mouseleave?:  MouseListenerFactory,
+		mouseenter?:  MouseListenerFactory,
 	}
 
-	export interface BBox {
-		show?: boolean;
-		left: number;
-		top: number;
-		width: number;
-		height: number;
+	export interface Points {
+		show?: boolean | ((self: uPlot, seriesIdx: number) => HTMLElement);
 	}
 
-	interface Select extends BBox {
-		/** div into which .u-select will be placed: .u-over or .u-under */
-		over?: boolean; // true
+	export interface Drag {
+		setScale?: boolean; // true
+		/** toggles dragging along x */
+		x?: boolean; // true
+		/** toggles dragging along y */
+		y?: boolean; // false
+		/** min drag distance threshold */
+		dist?: number; // 0
+		/** when x & y are true, sets an upper drag limit in CSS px for adaptive/unidirectional behavior */
+		uni?: number; // null
 	}
 
-	export interface Cursor {
-		/** cursor on/off */
-		show?: boolean;
-
-		/** vertical crosshair on/off */
-		x?: boolean;
-
-		/** horizontal crosshair on/off */
-		y?: boolean;
-
-		/** cursor position left offset in CSS pixels (relative to plotting area) */
-		left?: number;
-
-		/** cursor position top offset in CSS pixels (relative to plotting area) */
-		top?: number;
-
-		/** closest data index to cursor (closestIdx) */
-		idx?: number;
-
-		/** returns data idx used for hover points & legend display (defaults to closestIdx) */
-		dataIdx?: (self: uPlot, seriesIdx: number, closestIdx: number, xValue: number) => number;
-
-		/** fires on debounced mousemove events; returns refined [left, top] tuple to snap cursor position */
-		move?: (self: uPlot, mouseLeft: number, mouseTop: number) => LeftTop;
-
-		/** series hover points */
-		points?: {
-			show?: boolean | ((self: uPlot, seriesIdx: number) => HTMLElement);
-		};
-
-		/** determines vt/hz cursor dragging to set selection & setScale (zoom) */
-		drag?: {
-			setScale?: boolean; // true
-			/** toggles dragging along x */
-			x?: boolean; // true
-			/** toggles dragging along y */
-			y?: boolean; // false
-			/** min drag distance threshold */
-			dist?: number; // 0
-			/** when x & y are true, sets an upper drag limit in CSS px for adaptive/unidirectional behavior */
-			uni?: number; // null
-		};
-
-		/** sync cursor between multiple charts */
-		sync?: {
-			/** sync key must match between all charts in a synced group */
-			key: string;
-			/** determines if series toggling and focus via cursor is synced across charts */
-			setSeries?: boolean; // true
-			/** sets the x and y scales to sync by values. null will sync by relative (%) position */
-			scales?: SyncScales; // [xScaleKey, null]
-		};
-
-		/** focus series closest to cursor */
-		focus?: {
-			/** minimum cursor proximity to datapoint in CSS pixels for focus activation */
-			prox: number;
-		};
-
-		/** lock cursor on mouse click in plotting area */
-		lock?: boolean; // false
-
-		/** locked state */
-		locked?: false;
+	export namespace Sync {
+		export type Scales = [xScaleKey: string, yScaleKey: string];
 	}
 
-	export interface Scale {
-		/** is this scale temporal, with series' data in UNIX timestamps? */
-		time?: boolean;
-
-		/** determines whether all series' data on this scale will be scanned to find the full min/max range */
-		auto?: boolean;
-
-		/** can define a static scale range or re-range an initially-determined range from series data */
-		range?: MinMax | ((self: uPlot, initMin: number, initMax: number, scaleKey: string) => MinMax);
-
-		/** scale key from which this scale is derived */
-		from?: string,
-
-		/** scale distribution. 1: linear, 2: ordinal, 3: logarithmic */
-		distr?: 1 | 2 | 3;
-
-		/** logarithmic base */
-		log?: 10 | 2; // 10
-
-		/** current min scale value */
-		min?: number,
-
-		/** current max scale value */
-		max?: number,
+	export interface Sync {
+		/** sync key must match between all charts in a synced group */
+		key: string;
+		/** determines if series toggling and focus via cursor is synced across charts */
+		setSeries?: boolean; // true
+		/** sets the x and y scales to sync by values. null will sync by relative (%) position */
+		scales?: Sync.Scales; // [xScaleKey, null]
 	}
 
-	export interface Series {
-		/** series on/off. when off, it will not affect its scale */
-		show?: boolean;
+	export interface Focus {
+		/** minimum cursor proximity to datapoint in CSS pixels for focus activation */
+		prox: number;
+	}
+}
 
-		/** className to add to legend parts and cursor hover points */
-		class?: string;
+export interface Cursor {
+	/** cursor on/off */
+	show?: boolean;
 
-		/** scale key */
-		scale?: string;
+	/** vertical crosshair on/off */
+	x?: boolean;
 
-		/** whether this series' data is scanned during auto-ranging of its scale */
-		auto?: boolean;  // true
+	/** horizontal crosshair on/off */
+	y?: boolean;
 
-		/** if & how the data is pre-sorted (scale.auto optimization) */
-		sorted?: 0 | 1 | -1;
+	/** cursor position left offset in CSS pixels (relative to plotting area) */
+	left?: number;
 
-		/** when true, null data values will not cause line breaks */
-		spanGaps?: boolean;
+	/** cursor position top offset in CSS pixels (relative to plotting area) */
+	top?: number;
 
-		/** legend label */
-		label?: string;
+	/** closest data index to cursor (closestIdx) */
+	idx?: number;
 
-		/** inline-legend value formatter. can be an fmtDate formatting string when scale.time: true */
-		value?: string | ((self: uPlot, rawValue: number, seriesIdx: number, idx: number) => string | number);
+	/** returns data idx used for hover points & legend display (defaults to closestIdx) */
+	dataIdx?: Cursor.DataIdxRefiner;
 
-		/** table-legend multi-values formatter */
-		values?: (self: uPlot, seriesIdx: number, idx: number) => object;
+	/** fires on debounced mousemove events; returns refined [left, top] tuple to snap cursor position */
+	move?: Cursor.MousePosRefiner;
 
-		paths?: (self: uPlot, seriesIdx: number, idx0: number, idx1: number) => {
-			/** path to stroke */
-			stroke?: Path2D;
+	/** series hover points */
+	points?: Cursor.Points;
 
-			/** path to fill */
-			fill?: Path2D;
+	/** event listener proxies (can be overridden to tweak interaction behavior) */
+	bind?: Cursor.Bind;
 
-			/** path for clipping fill & stroke */
-			clip?: Path2D;
-		};
+	/** determines vt/hz cursor dragging to set selection & setScale (zoom) */
+	drag?: Cursor.Drag;
 
-		points?: {
-			/** if boolean or returns boolean, round points are drawn with defined options, else fn should draw own custom points via self.ctx */
-			show?: boolean | ((self: uPlot, seriesIdx: number, idx0: number, idx1: number) => boolean | undefined);
+	/** sync cursor between multiple charts */
+	sync?: Cursor.Sync;
 
-			/** diameter of point in CSS pixels */
-			size?: number;
+	/** focus series closest to cursor */
+	focus?: Cursor.Focus;
 
-			/** line width of circle outline in CSS pixels */
-			width?: CanvasRenderingContext2D['lineWidth'];
+	/** lock cursor on mouse click in plotting area */
+	lock?: boolean; // false
+}
 
-			/** line color of circle outline (defaults to series.stroke) */
-			stroke?: CanvasRenderingContext2D['strokeStyle'];
+export namespace Scale {
+	export type Auto = boolean | ((self: uPlot, resetScales: boolean) => boolean);
 
-			/** fill color of circle (defaults to #fff) */
-			fill?: CanvasRenderingContext2D['fillStyle'];
-		};
+	export type Range = Range.MinMax | Range.Function | Range.Config;
 
-		/** any two adjacent series with band: true, are filled as a single low/high band */
-		band?: boolean;
+	export const enum Distr {
+		Linear      = 1,
+		Ordinal     = 2,
+		Logarithmic = 3,
+	}
 
-		/** line & legend color */
+	export type LogBase = 10 | 2;
+}
+
+export interface Scale {
+	/** is this scale temporal, with series' data in UNIX timestamps? */
+	time?: boolean;
+
+	/** determines whether all series' data on this scale will be scanned to find the full min/max range */
+	auto?: Scale.Auto;
+
+	/** can define a static scale range or re-range an initially-determined range from series data */
+	range?: Scale.Range;
+
+	/** scale key from which this scale is derived */
+	from?: string,
+
+	/** scale distribution. 1: linear, 2: ordinal, 3: logarithmic */
+	distr?: Scale.Distr;
+
+	/** logarithmic base */
+	log?: Scale.LogBase; // 10;
+
+	/** current min scale value */
+	min?: number,
+
+	/** current max scale value */
+	max?: number,
+}
+
+export namespace Series {
+	export type isGap = (self: uPlot, seriesIdx: number, idx: number) => boolean;
+
+	export interface Paths {
+		/** path to stroke */
+		stroke?: Path2D;
+
+		/** path to fill */
+		fill?: Path2D;
+
+		/** path for clipping fill & stroke */
+		clip?: Path2D;
+	}
+
+	export interface Points {
+		/** if boolean or returns boolean, round points are drawn with defined options, else fn should draw own custom points via self.ctx */
+		show?: Points.Show;
+
+		/** diameter of point in CSS pixels */
+		size?: number;
+
+		/** minimum avg space between point centers before they're shown (default: size * 2) */
+		space?: number;
+
+		/** line width of circle outline in CSS pixels */
+		width?: CanvasRenderingContext2D['lineWidth'];
+
+		/** line color of circle outline (defaults to series.stroke) */
+		stroke?: CanvasRenderingContext2D['strokeStyle'];
+
+		/** fill color of circle (defaults to #fff) */
+		fill?: CanvasRenderingContext2D['fillStyle'];
+	}
+
+	export namespace Points {
+		export type Show = boolean | ((self: uPlot, seriesIdx: number, idx0: number, idx1: number) => boolean | undefined);
+	}
+
+	export type PathBuilder = (self: uPlot, seriesIdx: number, idx0: number, idx1: number) => Paths;
+
+	export type MinMaxIdxs = [minIdx: number, maxIdx: number];
+
+	export type Value = string | ((self: uPlot, rawValue: number, seriesIdx: number, idx: number) => string | number);
+
+	export type Values = (self: uPlot, seriesIdx: number, idx: number) => object;
+
+	export type FillTo = number | ((self: uPlot, seriesIdx: number, dataMin: number, dataMax: number) => number);
+
+	export const enum Sorted {
+		Unsorted    =  0,
+		Ascending   =  1,
+		Descending  = -1,
+	}
+}
+
+export interface Series {
+	/** series on/off. when off, it will not affect its scale */
+	show?: boolean;
+
+	/** className to add to legend parts and cursor hover points */
+	class?: string;
+
+	/** scale key */
+	scale?: string;
+
+	/** whether this series' data is scanned during auto-ranging of its scale */
+	auto?: boolean; // true
+
+	/** if & how the data is pre-sorted (scale.auto optimization) */
+	sorted?: Series.Sorted;
+
+	/** when true, null data values will not cause line breaks */
+	spanGaps?: boolean;
+
+	/** tests a datapoint for inclusion in gap array and path clipping */
+	isGap?: Series.isGap;
+
+	/** legend label */
+	label?: string;
+
+	/** inline-legend value formatter. can be an fmtDate formatting string when scale.time: true */
+	value?: Series.Value;
+
+	/** table-legend multi-values formatter */
+	values?: Series.Values;
+
+	paths?: Series.PathBuilder;
+
+	/** rendered datapoints */
+	points?: Series.Points;
+
+	/** any two adjacent series with band: true, are filled as a single low/high band */
+	band?: boolean;
+
+	/** line & legend color */
+	stroke?: CanvasRenderingContext2D['strokeStyle'];
+
+	/** line width in CSS pixels */
+	width?: CanvasRenderingContext2D['lineWidth'];
+
+	/** area fill & legend color */
+	fill?: CanvasRenderingContext2D['fillStyle'];
+
+	/** area fill baseline (default: 0) */
+	fillTo?: Series.FillTo;
+
+	/** line dash segment array */
+	dash?: number[];					// CanvasRenderingContext2D['setLineDash'];
+
+	/** alpha-transparancy */
+	alpha?: number;
+
+	/** current min and max data indices rendered */
+	idxs?: Series.MinMaxIdxs,
+
+	/** current min rendered value */
+	min?: number,
+
+	/** current max rendered value */
+	max?: number,
+}
+
+export namespace Axis {
+	/** must return an array of same length as splits, e.g. via splits.map() */
+	export type Filter = (self: uPlot, splits: number[], axisIdx: number, foundSpace: number, foundIncr: number) => (number | null)[];
+
+	export type Size = number | ((self: uPlot, values: string[], axisIdx: number) => number);
+
+	export type Space = number | ((self: uPlot, axisIdx: number, scaleMin: number, scaleMax: number, plotDim: number) => number);
+
+	export type Incrs = number[] | ((self: uPlot, axisIdx: number, scaleMin: number, scaleMax: number, fullDim: number, minSpace: number) => number[]);
+
+	export type Splits = number[] | ((self: uPlot, axisIdx: number, scaleMin: number, scaleMax: number, foundIncr: number, pctSpace: number) => number[]);
+
+	export type Values = ((self: uPlot, splits: number[], axisIdx: number, foundSpace: number, foundIncr: number) => (string | number | null)[]) | (string | number | null)[][] | string;
+
+	export const enum Side {
+		Top    = 0,
+		Right  = 1,
+		Bottom = 2,
+		Left   = 3,
+	}
+
+	export const enum Align {
+		Left  = 1,
+		Right = 2,
+	}
+
+	export type Rotate = number | ((self: uPlot, values: (string | number)[], axisIdx: number, foundSpace: number) => number);
+
+	export interface Grid {
+		/** on/off */
+		show?: boolean; // true
+
+		/** can filter which splits render lines. e.g splits.map(v => v % 2 == 0 ? v : null) */
+		filter?: Axis.Filter;
+
+		/** line color */
 		stroke?: CanvasRenderingContext2D['strokeStyle'];
 
 		/** line width in CSS pixels */
 		width?: CanvasRenderingContext2D['lineWidth'];
 
-		/** area fill & legend color */
-		fill?: CanvasRenderingContext2D['fillStyle'];
-
-		/** area fill baseline (default: 0) */
-		fillTo?: number | ((self: uPlot, seriesIdx: number, dataMin: number, dataMax: number) => number);
-
-		/** line dash segment array */
+		/** line dash array */
 		dash?: number[];					// CanvasRenderingContext2D['setLineDash'];
-
-		/** alpha-transparancy */
-		alpha?: number;
-
-		/** current min and max data indices rendered  */
-		idxs?: MinMax,
-
-		/** current min rendered value */
-		min?: number,
-
-		/** current max rendered value */
-		max?: number,
 	}
 
-	/** must return an array of same length as splits, e.g. via splits.map() */
-	type AxisSplitsFilter = (self: uPlot, splits: number[], axisIdx: number, foundSpace: number, foundIncr: number) => Array<number|null>;
-
-	export interface Axis {
-		/** axis on/off */
-		show?: boolean;
-
-		/** scale key */
-		scale?: string;
-
-		/** side of chart - 0: top, 1: rgt, 2: btm, 3: lft */
-		side?: number;
-
-		/** height of x axis or width of y axis in CSS pixels alloted for values, gap & ticks, but excluding axis label */
+	export interface Ticks extends Grid {
+		/** length of tick in CSS pixels */
 		size?: number;
-
-		/** gap between axis values and axis baseline (or ticks, if enabled) in CSS pixels */
-		gap?: number;
-
-		/** font used for axis values */
-		font?: CanvasRenderingContext2D['font'];
-
-		/** color of axis label & values */
-		stroke?: CanvasRenderingContext2D['strokeStyle'];
-
-		/** axis label text */
-		label?: string;
-
-		/** height of x axis label or width of y axis label in CSS pixels */
-		labelSize?: number;
-
-		/** font used for axis label */
-		labelFont?: CanvasRenderingContext2D['font'];
-
-		/** minimum grid & tick spacing in CSS pixels */
-		space?: number | ((self: uPlot, axisIdx: number, scaleMin: number, scaleMax: number, plotDim: number) => number);
-
-		/** available divisors for axis ticks, values, grid */
-		incrs?: number[] | ((self: uPlot, axisIdx: number, scaleMin: number, scaleMax: number, fullDim: number, minSpace: number) => number[]);
-
-		/** determines how and where the axis must be split for placing ticks, values, grid */
-		splits?: number[] | ((self: uPlot, axisIdx: number, scaleMin: number, scaleMax: number, foundIncr: number, pctSpace: number) => number[]);
-
-		/** can filter which splits are passed to axis.values() for rendering. e.g splits.map(v => v % 2 == 0 ? v : null) */
-		filter?: AxisSplitsFilter;
-
-		/** formats values for rendering */
-		values?: ((self: uPlot, splits: number[], axisIdx: number, foundSpace: number, foundIncr: number) => Array<string|number|null>) | (string | number | null)[][];
-
-		/** values rotation in degrees off horizontal (only bottom axes w/ side: 2) */
-		rotate?: number | ((self: uPlot, values: Array<string|number>, axisIdx: number, foundSpace: number) => number);
-
-		/** gridlines to draw from this axis' splits */
-		grid?: {
-			/** grid on/off */
-			show?: boolean; // true
-
-			/** can filter which splits render gridlines. e.g splits.map(v => v % 2 == 0 ? v : null) */
-			filter?: AxisSplitsFilter;
-
-			/** gridline color */
-			stroke?: CanvasRenderingContext2D['strokeStyle'];
-
-			/** gridline width in CSS pixels */
-			width?: CanvasRenderingContext2D['lineWidth'];
-
-			/** gridline dash array */
-			dash?: number[];					// CanvasRenderingContext2D['setLineDash'];
-		};
-
-		/** ticks to draw from this axis' splits */
-		ticks?: {
-			/** ticks on/off */
-			show?: boolean; // true
-
-			/** can filter which splits render ticks. e.g splits.map(v => v % 2 == 0 ? v : null) */
-			filter?: AxisSplitsFilter;
-
-			/** tick color */
-			stroke?: CanvasRenderingContext2D['strokeStyle'];
-
-			/** tick line width in CSS pixels */
-			width?: CanvasRenderingContext2D['lineWidth'];
-
-			/** tick dash array */
-			dash?: number[];					// CanvasRenderingContext2D['setLineDash'];
-
-			/** length of tick in CSS pixels */
-			size?: number;
-		};
 	}
+}
 
-	interface HooksDescription {
+export interface Axis {
+	/** axis on/off */
+	show?: boolean;
+
+	/** scale key */
+	scale?: string;
+
+	/** side of chart - 0: top, 1: rgt, 2: btm, 3: lft */
+	side?: Axis.Side;
+
+	/** height of x axis or width of y axis in CSS pixels alloted for values, gap & ticks, but excluding axis label */
+	size?: Axis.Size;
+
+	/** gap between axis values and axis baseline (or ticks, if enabled) in CSS pixels */
+	gap?: number;
+
+	/** font used for axis values */
+	font?: CanvasRenderingContext2D['font'];
+
+	/** color of axis label & values */
+	stroke?: CanvasRenderingContext2D['strokeStyle'];
+
+	/** axis label text */
+	label?: string;
+
+	/** height of x axis label or width of y axis label in CSS pixels */
+	labelSize?: number;
+
+	/** font used for axis label */
+	labelFont?: CanvasRenderingContext2D['font'];
+
+	/** minimum grid & tick spacing in CSS pixels */
+	space?: Axis.Space;
+
+	/** available divisors for axis ticks, values, grid */
+	incrs?: Axis.Incrs;
+
+	/** determines how and where the axis must be split for placing ticks, values, grid */
+	splits?: Axis.Splits;
+
+	/** can filter which splits are passed to axis.values() for rendering. e.g splits.map(v => v % 2 == 0 ? v : null) */
+	filter?: Axis.Filter;
+
+	/** formats values for rendering */
+	values?: Axis.Values;
+
+	/** values rotation in degrees off horizontal (only bottom axes w/ side: 2) */
+	rotate?: Axis.Rotate;
+
+	/** text alignment of axis values - 1: left, 2: right */
+	align?: Axis.Align;
+
+	/** gridlines to draw from this axis' splits */
+	grid?: Axis.Grid;
+
+	/** ticks to draw from this axis' splits */
+	ticks?: Axis.Ticks;
+}
+
+export namespace Hooks {
+	export interface Defs {
 		/** fires after opts are defaulted & merged but data has not been set and scales have not been ranged */
 		init?:       (self: uPlot, opts: Options, data: AlignedData) => void;
 
@@ -533,8 +680,19 @@ declare namespace uPlot {
 		destroy?:    (self: uPlot) => void;
 	}
 
-	export type Hooks = { [P in keyof HooksDescription]: HooksDescription[P][] }
-	export type PluginHooks = { [P in keyof HooksDescription]: HooksDescription[P] | HooksDescription[P][] }
+	export type Arrays = {
+		[P in keyof Defs]: Defs[P][]
+	}
+
+	export type ArraysOrFuncs = {
+		[P in keyof Defs]: Defs[P][] | Defs[P]
+	}
+}
+
+export interface Plugin {
+	/** can mutate provided opts as necessary */
+	opts?: (self: uPlot, opts: Options) => void | Options;
+	hooks: Hooks.ArraysOrFuncs;
 }
 
 export default uPlot;
