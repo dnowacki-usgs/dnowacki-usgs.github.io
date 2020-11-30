@@ -76,7 +76,7 @@
 			],
 		};
 
-		let uplot0 = new uPlot(opts0, data0, document.body);
+		let uplot0 = new uPlot(opts0, data0, document.getElementById("wl"));
 	});
 
 	fetch("https://geoport.usgs.esipfed.org/erddap/tabledap/wind-bel.json?time%2CDm%2CSm%2CPa%2CTa&time%3E=now-7days").then(r => r.json()).then(dataraw => {
@@ -140,7 +140,7 @@
 			],
 		};
 
-		let uplot = new uPlot(opts, data, document.body);
+		let uplot = new uPlot(opts, data, document.getElementById("wind"));
 
 		let opts2 = {
 			title: "Air temperature and pressure",
@@ -185,11 +185,14 @@
 			],
 		};
 
-		let uplot2 = new uPlot(opts2, data2, document.body);
+		let uplot2 = new uPlot(opts2, data2, document.getElementById("temperature"));
 	});
 	</script>
 	<h1>Bellingham Bay water level, wind, air temperature, and air pressure</h1>
 	<p>Provisional data subject to revision</p>
 	<p>All times are in UTC</p>
+    <div id="wl"></div>
+    <div id="wind"></div>
+    <div id="temperature"></div>
 </body>
 </html>
