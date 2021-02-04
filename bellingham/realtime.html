@@ -2,7 +2,7 @@
 <html>
 <head>
 	<meta charset="utf-8">
-	<title>Bellingham Wind Sensor</title>
+	<title>Bellingham Bay Water Level, Waves, and Wind</title>
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 
 	<link rel="stylesheet" href="../dist/uPlot.min.css">
@@ -249,11 +249,13 @@
 	</script>
 	<h1>Bellingham Bay water level, waves, wind, air temperature, and air pressure</h1>
 	<p>Provisional data subject to revision</p>
-	<p>All times are in UTC</p>
-    <p><a href="https://geoport.usgs.esipfed.org/erddap/search/index.html?page=1&itemsPerPage=1000&searchFor=bellingham">Access data via ERDDAP here</a></p>
+    <p>This page shows water level, wave characteristics, wind speed and direction, and air temperature and pressure in Bellingham Bay, WA. These data are collected as part of the USGS <a href="https://www.usgs.gov/centers/pcmsc/science/coastal-habitats-puget-sound">Coastal Habitats in Puget Sound</a> project. The map below shows the locations of the measurement sites. All times are in UTC.</p>
+    <img src="bbay_basemap_pswl.png" width=700 />
+    <hr />
     <div id="wl"></div>
-		<div id="waves"></div>
+    <div id="waves"></div>
     <div id="wind"></div>
     <div id="temperature"></div>
+    <p><a href="https://geoport.usgs.esipfed.org/erddap/search/index.html?page=1&itemsPerPage=1000&searchFor=bellingham">Access data via ERDDAP here</a></p>
 </body>
 </html>

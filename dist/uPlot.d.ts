@@ -18,8 +18,6 @@ declare class uPlot {
 	/** height of the plotting area + axes in CSS pixels (excludes title & legend height) */
 	readonly height: number;
 
-	// TODO: expose opts.gutters?
-
 	/** context of canvas used for plotting area + axes */
 	readonly ctx: CanvasRenderingContext2D;
 
@@ -54,7 +52,7 @@ declare class uPlot {
 
 
 	/** clears and redraws the canvas. if rebuildPaths = false, uses cached series' Path2D objects */
-	redraw(rebuildPaths?: boolean): void;
+	redraw(rebuildPaths?: boolean, recalcAxes?: boolean): void;
 
 	/** defers recalc & redraw for multiple ops, e.g. setScale('x', ...) && setScale('y', ...) */
 	batch(txn: Function): void;
@@ -73,7 +71,7 @@ declare class uPlot {
 
 	// TODO: include other series style opts which are dynamically pulled?
 	/** toggles series visibility or focus */
-	setSeries(seriesIdx: number, opts: {show?: boolean, focus?: boolean}): void;
+	setSeries(seriesIdx: number | null, opts: {show?: boolean, focus?: boolean}): void;
 
 	/** adds a series */
 	addSeries(opts: Series, seriesIdx?: number): void;
@@ -102,8 +100,8 @@ declare class uPlot {
 	/** updates getBoundingClientRect() cache for cursor positioning. use when plot's position changes (excluding window scroll & resize) */
 	syncRect(): void;
 
-	/** uPlot's default line path builder (handles nulls/gaps & data decimation) */
-	paths: Series.PathBuilder;
+	/** uPlot's path-builder factories */
+	static paths: Series.PathBuilderFactories;
 
 	/** a deep merge util fn */
 	static assign(targ: object, ...srcs: object[]): object;
@@ -112,7 +110,7 @@ declare class uPlot {
 	static rangeNum: ((min: number, max: number, mult: number, extra: boolean) => Range.MinMax) | ((min: number, max: number, cfg: Range.Config) => Range.MinMax);
 
 	/** re-ranges a given min/max outwards to nearest 10% of given min/max's magnitudes, unless fullMags = true */
-	static rangeLog(min: number, max: number, fullMags: boolean): Range.MinMax;
+	static rangeLog(min: number, max: number, base: Scale.LogBase, fullMags: boolean): Range.MinMax;
 
 	/** default numeric formatter using browser's locale: new Intl.NumberFormat(navigator.language).format */
 	static fmtNum(val: number): string;
@@ -122,19 +120,68 @@ declare class uPlot {
 
 	/** converts a Date into new Date that's time-adjusted for the given IANA Time Zone Name */
 	static tzDate(date: Date, tzName: string): Date;
+
+	/** outerJoins multiple data tables on table[0] values */
+	static join(tables: AlignedData[], nullModes?: JoinNullMode[][]): AlignedData;
+
+	static addGap: Series.AddGap;
+
+	static clipGaps: Series.ClipPathBuilder;
+
+	/** helper function for grabbing proper drawing orientation vars and fns for a plot instance (all dims in canvas pixels) */
+	static orient: (u: uPlot, seriesIdx: number, callback: OrientCallback) => any;
+}
+
+type OrientCallback = (
+	series: Series,
+	dataX: number[],
+	dataY: (number | null)[],
+	scaleX: Scale,
+	scaleY: Scale,
+	valToPosX: ValToPos,
+	valToPosY: ValToPos,
+	xOff: number,
+	yOff: number,
+	xDim: number,
+	yDim: number,
+	moveTo: MoveToH | MoveToV,
+	lineTo: LineToH | LineToV,
+	rect:   RectH   | RectV,
+	arc:    ArcH    | ArcV,
+	bezierCurveTo: BezierCurveToH | BezierCurveToV,
+) => any;
+
+type ValToPos = (val: number, scale: Scale, fullDim: number, offset: number) => number;
+
+type MoveToH = (p: Path2D, x: number, y: number) => void;
+type MoveToV = (p: Path2D, y: number, x: number) => void;
+type LineToH = (p: Path2D, x: number, y: number) => void;
+type LineToV = (p: Path2D, y: number, x: number) => void;
+type RectH   = (p: Path2D, x: number, y: number, w: number, h: number) => void;
+type RectV   = (p: Path2D, y: number, x: number, h: number, w: number) => void;
+type ArcH    = (p: Path2D, x: number, y: number, r: number, startAngle: number, endAngle: number) => void;
+type ArcV    = (p: Path2D, y: number, x: number, r: number, startAngle: number, endAngle: number) => void;
+type BezierCurveToH = (p: Path2D, bp1x: number, bp1y: number, bp2x: number, bp2y: number, p2x: number, p2y: number) => void;
+type BezierCurveToV = (p: Path2D, bp1y: number, bp1x: number, bp2y: number, bp2x: number, p2y: number, p2x: number) => void;
+
+export const enum JoinNullMode {
+	/** use for series with spanGaps: true */
+	Remove = 0,
+	/** retain explicit nulls gaps (default) */
+	Retain = 1,
+	/** expand explicit null gaps to include adjacent alignment artifacts (undefined values) */
+	Expand = 2,
+}
+
+export const enum Orientation {
+	Horizontal = 0,
+	Vertical   = 1,
 }
 
 export type AlignedData = [
 	xValues: number[],
 	...yValues: (number | null)[][],
 ]
-
-export interface AlignedDataWithGapTest {
-	data: AlignedData | null,
-	isGap: Series.isGap,
-}
-
-export type Data = AlignedData | AlignedDataWithGapTest;
 
 export interface DateNames {
 	/** long month names */
@@ -155,11 +202,7 @@ export namespace Range {
 
 	export type Function = (self: uPlot, initMin: number, initMax: number, scaleKey: string) => MinMax;
 
-	export const enum SoftMode {
-		Off    = 0,
-		Always = 1,
-		Near   = 2,
-	}
+	export type SoftMode = 0 | 1 | 2 | 3;
 
 	export interface Limit {
 		/** initial multiplier for dataMax-dataMin delta */
@@ -168,8 +211,8 @@ export namespace Range {
 		/** soft limit */
 		soft?: number; // 0
 
-		/** soft mode - 0: off, 1: if data extreme falls within soft limit, 2: if data extreme & padding exceeds soft limit */
-		mode?: SoftMode; // 2
+		/** soft limit active if... 0: never, 1: data <= limit, 2: data + padding <= limit, 3: data <= limit <= data + padding */
+		mode?: SoftMode; // 3
 
 		/** hard limit */
 		hard?: number;
@@ -185,20 +228,44 @@ export interface Scales {
 	[key: string]: Scale;
 }
 
-export interface Gutters {
-	x?: number | ((self: uPlot) => number);
-	y?: number | ((self: uPlot) => number);
-}
+type SidesWithAxes = [top: boolean, right: boolean, bottom: boolean, left: boolean];
+
+export type PaddingSide = number | null | ((self: uPlot, side: Axis.Side, sidesWithAxes: SidesWithAxes, cycleNum: number) => number);
+
+export type Padding = [top: PaddingSide, right: PaddingSide, bottom: PaddingSide, left: PaddingSide];
 
 export interface Legend {
 	show?: boolean;	// true
 	/** show series values at current cursor.idx */
 	live?: boolean;	// true
+	/** series indicator line width */
+	width?: Legend.Width;
+	/** series indicator stroke (CSS borderColor) */
+	stroke?: Legend.Stroke;
+	/** series indicator stroke style (CSS borderStyle) */
+	dash?: Legend.Dash;
+	/** series indicator fill */
+	fill?: Legend.Fill;
+}
+
+export namespace Legend {
+	export type Width  = number | ((self: uPlot, seriesIdx: number) => number);
+
+	export type Stroke = CSSStyleDeclaration['borderColor'] | ((self: uPlot, seriesIdx: number) => CSSStyleDeclaration['borderColor']);
+
+	export type Dash   = CSSStyleDeclaration['borderStyle'] | ((self: uPlot, seriesIdx: number) => CSSStyleDeclaration['borderStyle']);
+
+	export type Fill   = CSSStyleDeclaration['background']  | ((self: uPlot, seriesIdx: number) => CSSStyleDeclaration['background']);
 }
 
 export type DateFormatterFactory = (tpl: string) => (date: Date) => string;
 
 export type LocalDateFromUnix = (ts: number) => Date;
+
+export const enum DrawOrderKey {
+	Axes   = 'axes',
+	Series = 'series',
+}
 
 export interface Options {
 	/** chart title */
@@ -225,14 +292,25 @@ export interface Options {
 	/** creates an efficient formatter for Date objects from a template string, e.g. {YYYY}-{MM}-{DD} */
 	fmtDate?: DateFormatterFactory;
 
+	/** timestamp multiplier that yields 1 millisecond */
+	ms?: 1e-3 | 1; // 1e-3
+
+	/** drawing order for axes/grid & series (default: ["axes", "series"]) */
+	drawOrder?: DrawOrderKey[];
+
+	/** whether vt & hz lines of series/grid/ticks should be crisp/sharp or sub-px antialiased */
+	pxAlign?: boolean; // true
+
 	series: Series[];
+
+	bands?: Band[],
 
 	scales?: Scales;
 
 	axes?: Axis[];
 
-	/** extra space to add in CSS pixels in the absence of a cross-axis (to prevent axis labels at the plotting area limits from being chopped off) */
-	gutters?: Gutters;
+	/** padding per side, in CSS pixels (can prevent cross-axis labels at the plotting area limits from being chopped off) */
+	padding?: Padding;
 
 	select?: Select;
 
@@ -260,7 +338,7 @@ export interface BBox {
 	height: number;
 }
 
-interface Select extends BBox {
+export interface Select extends BBox {
 	/** div into which .u-select will be placed: .u-over or .u-under */
 	over?: boolean; // true
 }
@@ -287,8 +365,24 @@ export namespace Cursor {
 		mouseenter?:  MouseListenerFactory,
 	}
 
+	export namespace Points {
+		export type Show   = boolean | ((self: uPlot, seriesIdx: number) => HTMLElement);
+		export type Size   = number  | ((self: uPlot, seriesIdx: number) => number);
+		export type Width  = number  | ((self: uPlot, seriesIdx: number, size: number) => number);
+		export type Stroke = CanvasRenderingContext2D['strokeStyle'] | ((self: uPlot, seriesIdx: number) => CanvasRenderingContext2D['strokeStyle']);
+		export type Fill   = CanvasRenderingContext2D['fillStyle']   | ((self: uPlot, seriesIdx: number) => CanvasRenderingContext2D['fillStyle']);
+	}
+
 	export interface Points {
-		show?: boolean | ((self: uPlot, seriesIdx: number) => HTMLElement);
+		show?:   Points.Show;
+		/** hover point diameter in CSS pixels */
+		size?:   Points.Size;
+		/** hover point outline width in CSS pixels */
+		width?:  Points.Width;
+		/** hover point outline color, pattern or gradient */
+		stroke?: Points.Stroke;
+		/** hover point fill color, pattern or gradient */
+		fill?:   Points.Fill;
 	}
 
 	export interface Drag {
@@ -378,6 +472,8 @@ export namespace Scale {
 	}
 
 	export type LogBase = 10 | 2;
+
+	export type Clamp = number | ((self: uPlot, val: number, scaleMin: number, scaleMax: number, scaleKey: string) => number);
 }
 
 export interface Scale {
@@ -399,25 +495,54 @@ export interface Scale {
 	/** logarithmic base */
 	log?: Scale.LogBase; // 10;
 
+	/** clamps log scale values <= 0 (default = scaleMin / 10) */
+	clamp?: Scale.Clamp;
+
 	/** current min scale value */
 	min?: number,
 
 	/** current max scale value */
 	max?: number,
+
+	/** scale direction */
+	dir?: 1 | -1;
+
+	/** scale orientation - 0: hz, 1: vt */
+	ori?: 0 | 1;
 }
 
 export namespace Series {
-	export type isGap = (self: uPlot, seriesIdx: number, idx: number) => boolean;
-
 	export interface Paths {
 		/** path to stroke */
-		stroke?: Path2D;
+		stroke?: Path2D | null;
 
 		/** path to fill */
-		fill?: Path2D;
+		fill?: Path2D | null;
 
 		/** path for clipping fill & stroke */
-		clip?: Path2D;
+		clip?: Path2D | null;
+	}
+
+	export type LinearPathBuilderFactory  = () => Series.PathBuilder;
+	export type SplinePathBuilderFactory  = () => Series.PathBuilder;
+	export type SteppedPathBuilderFactory = (opts?: {align?: -1 | 1}) => Series.PathBuilder;
+	export type BarsPathBuilderFactory    = (opts?: {align?: -1 | 0 | 1, size?: [factor?: number, max?: number]}) => Series.PathBuilder;
+
+	export interface PathBuilderFactories {
+		linear?:  LinearPathBuilderFactory;
+		spline?:  SplinePathBuilderFactory;
+		stepped?: SteppedPathBuilderFactory;
+		bars?:    BarsPathBuilderFactory;
+	}
+
+	export type Stroke = CanvasRenderingContext2D['strokeStyle'] | ((self: uPlot, seriesIdx: number) => CanvasRenderingContext2D['strokeStyle']);
+
+	export type Fill = CanvasRenderingContext2D['fillStyle'] | ((self: uPlot, seriesIdx: number) => CanvasRenderingContext2D['fillStyle']);
+
+	export type Cap = CanvasRenderingContext2D['lineCap'];
+
+	export namespace Points {
+		export type Show = boolean | ((self: uPlot, seriesIdx: number, idx0: number, idx1: number) => boolean | undefined);
 	}
 
 	export interface Points {
@@ -431,20 +556,30 @@ export namespace Series {
 		space?: number;
 
 		/** line width of circle outline in CSS pixels */
-		width?: CanvasRenderingContext2D['lineWidth'];
+		width?: number;
 
 		/** line color of circle outline (defaults to series.stroke) */
-		stroke?: CanvasRenderingContext2D['strokeStyle'];
+		stroke?: Stroke;
+
+		/** line dash segment array */
+		dash?: number[];
+
+		/** line cap */
+		cap?: Series.Cap;
 
 		/** fill color of circle (defaults to #fff) */
-		fill?: CanvasRenderingContext2D['fillStyle'];
+		fill?: Fill;
 	}
 
-	export namespace Points {
-		export type Show = boolean | ((self: uPlot, seriesIdx: number, idx0: number, idx1: number) => boolean | undefined);
-	}
+	export type Gap = [from: number, to: number];
 
-	export type PathBuilder = (self: uPlot, seriesIdx: number, idx0: number, idx1: number) => Paths;
+	export type Gaps = Gap[];
+
+	export type AddGap = (gaps: Gaps, from: number, to: number) => void;
+
+	export type ClipPathBuilder = (gaps: Gaps, ori: Orientation, left: number, top: number, width: number, height: number) => Path2D | null;
+
+	export type PathBuilder = (self: uPlot, seriesIdx: number, idx0: number, idx1: number) => Paths | null;
 
 	export type MinMaxIdxs = [minIdx: number, maxIdx: number];
 
@@ -480,8 +615,8 @@ export interface Series {
 	/** when true, null data values will not cause line breaks */
 	spanGaps?: boolean;
 
-	/** tests a datapoint for inclusion in gap array and path clipping */
-	isGap?: Series.isGap;
+	/** whether path and point drawing should offset canvas to try drawing crisp lines */
+	pxAlign?: boolean; // true
 
 	/** legend label */
 	label?: string;
@@ -497,23 +632,23 @@ export interface Series {
 	/** rendered datapoints */
 	points?: Series.Points;
 
-	/** any two adjacent series with band: true, are filled as a single low/high band */
-	band?: boolean;
+	/** line width in CSS pixels */
+	width?: number;
 
 	/** line & legend color */
-	stroke?: CanvasRenderingContext2D['strokeStyle'];
-
-	/** line width in CSS pixels */
-	width?: CanvasRenderingContext2D['lineWidth'];
+	stroke?: Series.Stroke;
 
 	/** area fill & legend color */
-	fill?: CanvasRenderingContext2D['fillStyle'];
+	fill?: Series.Fill;
 
 	/** area fill baseline (default: 0) */
 	fillTo?: Series.FillTo;
 
 	/** line dash segment array */
-	dash?: number[];					// CanvasRenderingContext2D['setLineDash'];
+	dash?: number[];
+
+	/** line cap */
+	cap?: Series.Cap;
 
 	/** alpha-transparancy */
 	alpha?: number;
@@ -528,11 +663,28 @@ export interface Series {
 	max?: number,
 }
 
+export namespace Band {
+	export type Fill = CanvasRenderingContext2D['fillStyle'] | ((self: uPlot, bandIdx: number, highSeriesFill: CanvasRenderingContext2D['fillStyle']) => CanvasRenderingContext2D['fillStyle']);
+
+	export type Bounds = [highSeriesIdx: number, lowSeriesIdx: number];
+}
+
+export interface Band {
+	/** band on/off */
+//	show?: boolean;
+
+	/** series indices of upper and lower band edges */
+	series: Band.Bounds;
+
+	/** area fill style */
+	fill?: Band.Fill;
+}
+
 export namespace Axis {
 	/** must return an array of same length as splits, e.g. via splits.map() */
 	export type Filter = (self: uPlot, splits: number[], axisIdx: number, foundSpace: number, foundIncr: number) => (number | null)[];
 
-	export type Size = number | ((self: uPlot, values: string[], axisIdx: number) => number);
+	export type Size = number | ((self: uPlot, values: string[], axisIdx: number, cycleNum: number) => number);
 
 	export type Space = number | ((self: uPlot, axisIdx: number, scaleMin: number, scaleMax: number, plotDim: number) => number);
 
@@ -541,6 +693,8 @@ export namespace Axis {
 	export type Splits = number[] | ((self: uPlot, axisIdx: number, scaleMin: number, scaleMax: number, foundIncr: number, pctSpace: number) => number[]);
 
 	export type Values = ((self: uPlot, splits: number[], axisIdx: number, foundSpace: number, foundIncr: number) => (string | number | null)[]) | (string | number | null)[][] | string;
+
+	export type Stroke = CanvasRenderingContext2D['strokeStyle'] | ((self: uPlot, axisIdx: number) => CanvasRenderingContext2D['strokeStyle']);
 
 	export const enum Side {
 		Top    = 0,
@@ -561,16 +715,19 @@ export namespace Axis {
 		show?: boolean; // true
 
 		/** can filter which splits render lines. e.g splits.map(v => v % 2 == 0 ? v : null) */
-		filter?: Axis.Filter;
+		filter?: Filter;
 
 		/** line color */
-		stroke?: CanvasRenderingContext2D['strokeStyle'];
+		stroke?: Stroke;
 
 		/** line width in CSS pixels */
-		width?: CanvasRenderingContext2D['lineWidth'];
+		width?: number;
 
-		/** line dash array */
-		dash?: number[];					// CanvasRenderingContext2D['setLineDash'];
+		/** line dash segment array */
+		dash?: number[];
+
+		/** line cap */
+		cap?: Series.Cap;
 	}
 
 	export interface Ticks extends Grid {
@@ -599,7 +756,7 @@ export interface Axis {
 	font?: CanvasRenderingContext2D['font'];
 
 	/** color of axis label & values */
-	stroke?: CanvasRenderingContext2D['strokeStyle'];
+	stroke?: Axis.Stroke;
 
 	/** axis label text */
 	label?: string;
@@ -653,7 +810,7 @@ export namespace Hooks {
 		setSelect?:  (self: uPlot) => void;
 
 		/** fires after a series is toggled or focused */
-		setSeries?:  (self: uPlot, seriesIdx: number, opts: Series) => void;
+		setSeries?:  (self: uPlot, seriesIdx: number | null, opts: Series) => void;
 
 		/** fires after data is updated updated */
 		setData?:    (self: uPlot) => void;
