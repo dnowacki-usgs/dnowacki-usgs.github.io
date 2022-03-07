@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<title>USGS Guam Imagery and Waves</title>
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<link href="styles/common.css" type="text/css" rel="stylesheet">
+		<link href="styles/walrus.css" type="text/css" rel="stylesheet">
+		<link rel="stylesheet" href="https://dnowacki-usgs.github.io/dist/uPlot.min.css">
+	<style>
+	#heading {
+		text-align: center;
+		padding-bottom: 10px;
+	}
+
+	th canvas {
+		display: block;
+	}
+	</style>
+	</head>
+	<body>
+		<a title="Skip main USGS header navigation links and go to main content." href="#content"></a><a name="top" id="top"></a>
+		<div id="usgscolorband">
+			<div id="usgsbanner">
+				<div id="usgsidentifier">
+					<a href="https://www.usgs.gov"><img src="images/header_graphic_usgsIdentifier_white.jpg" alt="USGS - science for a changing world" title="U.S. Geological Survey Home Page" width="178" height="72"></a>
+				</div>
+			</div>
+		</div>
+		<div id="usgstitle">
+			<p><a href="https://www.usgs.gov/centers/pcmsc">Pacific Coastal and Marine Science Center</a></p>
+		</div>
+		<script src="https://dnowacki-usgs.github.io/dist/uPlot.iife.min.js"></script>
+	<script>
+
+	const cursorOpts = {
+		lock: true,
+		sync: {
+			key: "moo",
+			setSeries: true,
+		},
+	};
+	
+	fetch("https://geoport.usgs.esipfed.org/erddap/tabledap/waves-guam.json?time%2Crbrcoda3_meanpressure_21bits&time%3E=now-7days").then(r => r.json()).then(dataraw => {
+
+		times = [];
+		Hs = [];
+		Tp = [];
+		dataraw.table.rows.forEach(function(d, i) {
+			times.push(new Date(d[0]).getTime()/1000);
+			Hs.push(d[1]);
+		});
+		let data = [times, Hs];
+		let opts = {
+			title: "Gauge pressure",
+			tzDate:  ts => uPlot.tzDate(new Date(ts * 1e3), 'Etc/UTC'),
+			id: "chart3",
+			class: "my-chart",
+			width: 1000,
+			height: 400,
+			cursor:cursorOpts,
+			series: [
+				{},
+				{
+					show: true,
+					points: {show: true},
+					label: "Pressure",
+					value: (self, rawValue) => rawValue + " dbar",
+					scale: "dbar",
+					stroke: "blue",
+				},
+				
+			],
+			axes: [
+				{},
+				{
+					scale: "dbar",
+					label: "Pressure [dbar]",
+					// range: [0, 360],
+					side: 3,
+					grid: {show: false}
+					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(1) + "%"),
+				},
+				{
+					scale: "s",
+					label: "Mean wave period [s]",
+					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(2) + "MB"),
+					side: 1,
+					grid: {show: false},
+				},
+			],
+		};
+
+		let uplot0 = new uPlot(opts, data, document.getElementById("wl"));
+	});
+	
+	fetch("https://geoport.usgs.esipfed.org/erddap/tabledap/waves-guam.json?time%2CsignificantWaveHeight%2CmeanPeriod&time%3E=now-7days").then(r => r.json()).then(dataraw => {
+
+		times = [];
+		Hs = [];
+		Tp = [];
+		dataraw.table.rows.forEach(function(d, i) {
+			times.push(new Date(d[0]).getTime()/1000);
+			Hs.push(d[1]);
+			Tp.push(d[2]);
+		});
+		let data = [times, Hs, Tp];
+		let opts = {
+			title: "Wave height and period",
+			tzDate:  ts => uPlot.tzDate(new Date(ts * 1e3), 'Etc/UTC'),
+			id: "chart3",
+			class: "my-chart",
+			width: 1000,
+			height: 400,
+			cursor:cursorOpts,
+			series: [
+				{},
+				{
+					show: true,
+					// spanGaps: false,
+					label: "Significant wave height",
+					value: (self, rawValue) => rawValue + " m",
+					scale: "m",
+					stroke: "blue",
+				},
+				{stroke: "red",
+				paths: u => null,
+				points: {show: true},
+				value: (self, rawValue) => rawValue + " s",
+				scale: "s",
+				label:'Mean wave period'}
+			],
+			axes: [
+				{},
+				{
+					scale: "m",
+					label: "Significant wave height [m]",
+					// range: [0, 360],
+					side: 3,
+					grid: {show: false}
+					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(1) + "%"),
+				},
+				{
+					scale: "s",
+					label: "Mean wave period [s]",
+					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(2) + "MB"),
+					side: 1,
+					grid: {show: false},
+				},
+			],
+		};
+
+		let uplot1 = new uPlot(opts, data, document.getElementById("waves"));
+	});
+	
+	fetch("https://geoport.usgs.esipfed.org/erddap/tabledap/waves-guam.json?time%2Crbrcoda3_meantemperature_20bits_lower%2Crbrcoda3_meantemperature_20bits_upper&time%3E=now-7days").then(r => r.json()).then(dataraw => {
+
+		times = [];
+		Hs = [];
+		Tp = [];
+		dataraw.table.rows.forEach(function(d, i) {
+			times.push(new Date(d[0]).getTime()/1000);
+			Hs.push(d[1]);
+			Tp.push(d[2]);
+		});
+		let data = [times, Hs, Tp];
+		let opts = {
+			title: "Wave height and period",
+			tzDate:  ts => uPlot.tzDate(new Date(ts * 1e3), 'Etc/UTC'),
+			id: "chart3",
+			class: "my-chart",
+			width: 1000,
+			height: 400,
+			cursor:cursorOpts,
+			series: [
+				{},
+				{
+					show: true,
+					// spanGaps: false,
+					label: "Lower temperature",
+					value: (self, rawValue) => rawValue + " C",
+					scale: "C",
+					stroke: "blue",
+				},
+				{stroke: "red",
+				paths: u => null,
+				points: {show: true},
+				value: (self, rawValue) => rawValue + " C",
+				scale: "C",
+				label:'Upper temperature'}
+			],
+			axes: [
+				{},
+				{
+					scale: "C",
+					label: "Lower temperature [C]",
+					// range: [0, 360],
+					side: 3,
+					grid: {show: false}
+					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(1) + "%"),
+				},
+				{
+					scale: "C",
+					label: "Upper temperature [C]",
+					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(2) + "MB"),
+					side: 1,
+					grid: {show: false},
+				},
+			],
+		};
+
+		let uplot2 = new uPlot(opts, data, document.getElementById("temperature"));
+	});
+	</script>
+	<h1>Guam coastal imagery and waves</h1>
+	<p>Provisional data subject to revision</p>
+    <p>This page shows imagery and wave characteristics near Adelup Point, Guam. These data are collected as part of the USGS <a href="https://www.usgs.gov/centers/pcmsc/science/coral-reef-project">Coral Reef</a> project. Times for wave data are in UTC; image time stamps are in Chamorro Time Zone (local).</p>
+    <p>The image below shows the locations of the cameras, both looking roughly west, and the wave buoy.<br>
+    <img src="guam_basemap.png" width=450></p>
+    <hr>
+    <!--     <div id="wl"></div> -->
+    <div id="waves"></div>
+<!--     <div id="temperature"></div> -->
+	<hr>
+    <div id="images">
+    <h2>Snapshot</h2>
+    <img src="http://cmgp-coastcam.s3-us-west-2.amazonaws.com/cameras/guam/latest/c1_snap.jpg" width=450 />
+    &nbsp;
+    <img src="http://cmgp-coastcam.s3-us-west-2.amazonaws.com/cameras/guam/latest/c2_snap.jpg" width=450 />
+    <h2>Time exposure</h2>
+    <img src="http://cmgp-coastcam.s3-us-west-2.amazonaws.com/cameras/guam/latest/c1_timex.jpg" width=450 />
+    &nbsp;
+    <img src="http://cmgp-coastcam.s3-us-west-2.amazonaws.com/cameras/guam/latest/c2_timex.jpg" width=450 />
+    <h2>Bright</h2>
+    <img src="http://cmgp-coastcam.s3-us-west-2.amazonaws.com/cameras/guam/latest/c1_bright.jpg" width=450 />
+    &nbsp;
+    <img src="http://cmgp-coastcam.s3-us-west-2.amazonaws.com/cameras/guam/latest/c2_bright.jpg" width=450 />
+    <h2>Dark</h2>
+    <img src="http://cmgp-coastcam.s3-us-west-2.amazonaws.com/cameras/guam/latest/c1_dark.jpg" width=450 />
+    &nbsp;
+    <img src="http://cmgp-coastcam.s3-us-west-2.amazonaws.com/cameras/guam/latest/c2_dark.jpg" width=450 />
+    <h2>Variance</h2>
+    <img src="http://cmgp-coastcam.s3-us-west-2.amazonaws.com/cameras/guam/latest/c1_var.jpg" width=450 />
+    &nbsp;
+    <img src="http://cmgp-coastcam.s3-us-west-2.amazonaws.com/cameras/guam/latest/c2_var.jpg" width=450 />
+    </div>
+
+    <p><a href="https://geoport.usgs.esipfed.org/erddap/search/index.html?page=1&itemsPerPage=1000&searchFor=guam">Access data via ERDDAP here</a></p>
+		<noscript>
+			Javascript display shows a plot with multiple sine curves that represent real-time water levels at various locations over the last 7 days, when sites are responding. 
+			Your browser does not support javascript. If you would like to know the water levels and the locations, please contact Dan Nowacki, dnowacki@usgs.gov.
+		</noscript>
+		<div id="usgsfooter">
+			<p id="usgsfooterbar"> <a href="http://www.usgs.gov/laws/accessibility.html" title="Accessibility Policy (Section 508)">Accessibility</a> <a href="http://www.usgs.gov/foia/" title="Freedom of Information Act">FOIA</a> <a href="http://www.usgs.gov/laws/privacy.html" title="Privacy policies of the U.S. Geological Survey.">Privacy</a> <a href="http://www.usgs.gov/laws/policies_notices.html" title="Policies and notices that govern information posted on USGS Web sites.">Policies and Notices</a> </p>
+			<p id="usgsfootertext"> <a href="https://www.doi.gov">U.S. Department of the Interior</a> | <a href="https://www.usgs.gov">U.S. Geological Survey</a><br />
+				URL: https://cmgds.er.usgs.gov/data/pswl/realtime.html<br />
+				Page Contact Information: <a href="mailto:dnowacki@usgs.gov">Dan Nowacki</a><br>
+				<script language="Javascript">
+document.write("Page Last Modified: " + document.lastModified +"");
+</script><noscript>Page last modified February 5 2021</noscript></p>
+		</div>
+	</body>
+</html>
+
