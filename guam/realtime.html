@@ -63,11 +63,12 @@
 				{},
 				{
 					show: true,
-// 					points: {show: true},
+					points: {show: true},
 					label: "Direction",
 					value: (self, rawValue) => rawValue + " deg",
 					scale: "deg",
 					stroke: "blue",
+					paths: u => null,
 				},
 				
 			],
@@ -76,18 +77,19 @@
 				{
 					scale: "deg",
 					label: "Direction [deg]",
-					// range: [0, 360],
+					range: [0, 360],
 					side: 3,
-					grid: {show: false}
+					
+					grid: {show: false},
 					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(1) + "%"),
 				},
-				{
-					scale: "s",
-					label: "Mean wave period [s]",
-					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(2) + "MB"),
-					side: 1,
-					grid: {show: false},
-				},
+				// {
+// 					scale: "s",
+// 					label: "Mean wave period [s]",
+// 					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(2) + "MB"),
+// 					side: 1,
+// 					grid: {show: false},
+// 				},
 			],
 		};
 
@@ -193,13 +195,13 @@
 					grid: {show: false}
 					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(1) + "%"),
 				},
-				{
-					scale: "s",
-					label: "Mean wave period [s]",
-					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(2) + "MB"),
-					side: 1,
-					grid: {show: false},
-				},
+// 				{
+// 					scale: "s",
+// 					label: "Mean wave period [s]",
+// 					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(2) + "MB"),
+// 					side: 1,
+// 					grid: {show: false},
+// 				},
 			],
 		};
 
