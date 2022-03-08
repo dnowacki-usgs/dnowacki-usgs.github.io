@@ -41,7 +41,7 @@
 		},
 	};
 	
-	fetch("https://geoport.usgs.esipfed.org/erddap/tabledap/waves-guam.json?time%2Crbrcoda3_meanpressure_21bits&time%3E=now-7days").then(r => r.json()).then(dataraw => {
+	fetch("https://geoport.usgs.esipfed.org/erddap/tabledap/waves-guam.json?time%2CmeanDirection&time%3E=now-7days").then(r => r.json()).then(dataraw => {
 
 		times = [];
 		Hs = [];
@@ -52,8 +52,8 @@
 		});
 		let data = [times, Hs];
 		let opts = {
-			title: "Gauge pressure",
-			tzDate:  ts => uPlot.tzDate(new Date(ts * 1e3), 'Etc/UTC'),
+			title: "Mean wave direction",
+			tzDate:  ts => uPlot.tzDate(new Date(ts * 1e3), 'Pacific/Guam'),
 			id: "chart3",
 			class: "my-chart",
 			width: 1000,
@@ -63,10 +63,10 @@
 				{},
 				{
 					show: true,
-					points: {show: true},
-					label: "Pressure",
-					value: (self, rawValue) => rawValue + " dbar",
-					scale: "dbar",
+// 					points: {show: true},
+					label: "Direction",
+					value: (self, rawValue) => rawValue + " deg",
+					scale: "deg",
 					stroke: "blue",
 				},
 				
@@ -74,8 +74,8 @@
 			axes: [
 				{},
 				{
-					scale: "dbar",
-					label: "Pressure [dbar]",
+					scale: "deg",
+					label: "Direction [deg]",
 					// range: [0, 360],
 					side: 3,
 					grid: {show: false}
@@ -107,7 +107,7 @@
 		let data = [times, Hs, Tp];
 		let opts = {
 			title: "Wave height and period",
-			tzDate:  ts => uPlot.tzDate(new Date(ts * 1e3), 'Etc/UTC'),
+			tzDate:  ts => uPlot.tzDate(new Date(ts * 1e3), 'Pacific/Guam'),
 			id: "chart3",
 			class: "my-chart",
 			width: 1000,
@@ -124,8 +124,8 @@
 					stroke: "blue",
 				},
 				{stroke: "red",
-				paths: u => null,
-				points: {show: true},
+// 				paths: u => null,
+// 				points: {show: true},
 				value: (self, rawValue) => rawValue + " s",
 				scale: "s",
 				label:'Mean wave period'}
@@ -153,7 +153,7 @@
 		let uplot1 = new uPlot(opts, data, document.getElementById("waves"));
 	});
 	
-	fetch("https://geoport.usgs.esipfed.org/erddap/tabledap/waves-guam.json?time%2Crbrcoda3_meantemperature_20bits_lower%2Crbrcoda3_meantemperature_20bits_upper&time%3E=now-7days").then(r => r.json()).then(dataraw => {
+	fetch("https://geoport.usgs.esipfed.org/erddap/tabledap/waves-guam.json?time%2Crbrcoda3_meantemperature_20bits_upper&time%3E=now-7days").then(r => r.json()).then(dataraw => {
 
 		times = [];
 		Hs = [];
@@ -161,12 +161,11 @@
 		dataraw.table.rows.forEach(function(d, i) {
 			times.push(new Date(d[0]).getTime()/1000);
 			Hs.push(d[1]);
-			Tp.push(d[2]);
 		});
-		let data = [times, Hs, Tp];
+		let data = [times, Hs];
 		let opts = {
-			title: "Wave height and period",
-			tzDate:  ts => uPlot.tzDate(new Date(ts * 1e3), 'Etc/UTC'),
+			title: "Near-surface water temperature",
+			tzDate:  ts => uPlot.tzDate(new Date(ts * 1e3), 'Pacific/Guam'),
 			id: "chart3",
 			class: "my-chart",
 			width: 1000,
@@ -176,32 +175,27 @@
 				{},
 				{
 					show: true,
-					// spanGaps: false,
-					label: "Lower temperature",
+					points: {show: true},
+					label: "Water temperature",
 					value: (self, rawValue) => rawValue + " C",
 					scale: "C",
 					stroke: "blue",
 				},
-				{stroke: "red",
-				paths: u => null,
-				points: {show: true},
-				value: (self, rawValue) => rawValue + " C",
-				scale: "C",
-				label:'Upper temperature'}
+				
 			],
 			axes: [
 				{},
 				{
 					scale: "C",
-					label: "Lower temperature [C]",
+					label: "Temperature [C]",
 					// range: [0, 360],
 					side: 3,
 					grid: {show: false}
 					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(1) + "%"),
 				},
 				{
-					scale: "C",
-					label: "Upper temperature [C]",
+					scale: "s",
+					label: "Mean wave period [s]",
 					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(2) + "MB"),
 					side: 1,
 					grid: {show: false},
@@ -209,18 +203,25 @@
 			],
 		};
 
-		let uplot2 = new uPlot(opts, data, document.getElementById("temperature"));
+		let uplot2 = new uPlot(opts, data, document.getElementById("wl"));
 	});
 	</script>
 	<h1>Guam coastal imagery and waves</h1>
 	<p>Provisional data subject to revision</p>
-    <p>This page shows imagery and wave characteristics near Adelup Point, Guam. These data are collected as part of the USGS <a href="https://www.usgs.gov/centers/pcmsc/science/coral-reef-project">Coral Reef</a> project. Times for wave data are in UTC; image time stamps are in Chamorro Time Zone (local).</p>
-    <p>The image below shows the locations of the cameras, both looking roughly west, and the wave buoy.<br>
-    <img src="guam_basemap.png" width=450></p>
+    <p>This page shows coastal imagery and wave characteristics near Adelup Point, Guam. Two fixed cameras were installed in January 2022 atop the Latte of Freedom, approximately 31 m above sea level. The cameras look roughly west-southwest; one is a zoom view of the beach shoreline and the other provides a wide-angle view of the reef west of Adelup Point, within <a href="https://www.nps.gov/wapa">War In The Pacific National Historical Park</a>. Images are collected hourly when sufficient daylight exists.</p>
+    
+    <p>The wave buoy is located 200 m north of the reef crest in about 21 m water depth and records wave characteristics every half hour.</p>
+    
+    
+    
+    
+    <p>These data are collected as part of the USGS <a href="https://www.usgs.gov/centers/pcmsc/science/coral-reef-project">Coral Reef Project</a>. Times shown are in the local Chamorro Time Zone (ChST). The image below shows the approximate fields of view of the cameras and the location of the wave buoy.</p>
+    <p><img src="guam_basemap.png" width=450></p>
     <hr>
-    <!--     <div id="wl"></div> -->
     <div id="waves"></div>
-<!--     <div id="temperature"></div> -->
+    <div id="temperature"></div>
+    <div id="wl"></div>
+    
 	<hr>
     <div id="images">
     <h2>Snapshot</h2>
