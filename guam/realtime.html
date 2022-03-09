@@ -41,62 +41,7 @@
 		},
 	};
 	
-	fetch("https://geoport.usgs.esipfed.org/erddap/tabledap/waves-guam.json?time%2CmeanDirection&time%3E=now-7days").then(r => r.json()).then(dataraw => {
-
-		times = [];
-		Hs = [];
-		Tp = [];
-		dataraw.table.rows.forEach(function(d, i) {
-			times.push(new Date(d[0]).getTime()/1000);
-			Hs.push(d[1]);
-		});
-		let data = [times, Hs];
-		let opts = {
-			title: "Mean wave direction",
-			tzDate:  ts => uPlot.tzDate(new Date(ts * 1e3), 'Pacific/Guam'),
-			id: "chart3",
-			class: "my-chart",
-			width: 1000,
-			height: 400,
-			cursor:cursorOpts,
-			series: [
-				{},
-				{
-					show: true,
-					points: {show: true},
-					label: "Direction",
-					value: (self, rawValue) => rawValue + " deg",
-					scale: "deg",
-					stroke: "blue",
-					paths: u => null,
-				},
-				
-			],
-			axes: [
-				{},
-				{
-					scale: "deg",
-					label: "Direction [deg]",
-					range: [0, 360],
-					side: 3,
-					
-					grid: {show: false},
-					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(1) + "%"),
-				},
-				// {
-// 					scale: "s",
-// 					label: "Mean wave period [s]",
-// 					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(2) + "MB"),
-// 					side: 1,
-// 					grid: {show: false},
-// 				},
-			],
-		};
-
-		let uplot0 = new uPlot(opts, data, document.getElementById("wl"));
-	});
-	
-	fetch("https://geoport.usgs.esipfed.org/erddap/tabledap/waves-guam.json?time%2CsignificantWaveHeight%2CmeanPeriod&time%3E=now-7days").then(r => r.json()).then(dataraw => {
+	fetch("https://geoport.usgs.esipfed.org/erddap/tabledap/waves-guam.json?time%2CmeanPeriod%2CpeakPeriod&time%3E=now-7days").then(r => r.json()).then(dataraw => {
 
 		times = [];
 		Hs = [];
@@ -108,7 +53,66 @@
 		});
 		let data = [times, Hs, Tp];
 		let opts = {
-			title: "Wave height and period",
+			title: "Wave period",
+			tzDate:  ts => uPlot.tzDate(new Date(ts * 1e3), 'Pacific/Guam'),
+			id: "chart3",
+			class: "my-chart",
+			width: 1000,
+			height: 400,
+			cursor:cursorOpts,
+			series: [
+				{},
+				{
+					show: true,
+					// spanGaps: false,
+					label: "Mean period",
+					value: (self, rawValue) => rawValue + " s",
+					scale: "s",
+					stroke: "blue",
+				},
+				{stroke: "red",
+// 				paths: u => null,
+// 				points: {show: true},
+				value: (self, rawValue) => rawValue + " s",
+				scale: "s",
+				label:'Peak period'}
+			],
+			axes: [
+				{},
+				{
+					scale: "s",
+					label: "Mean period [s]",
+					// range: [0, 360],
+					side: 3,
+					grid: {show: false}
+					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(1) + "%"),
+				},
+				{
+					scale: "s",
+					label: "Peak period [s]",
+					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(2) + "MB"),
+					side: 1,
+					grid: {show: false},
+				},
+			],
+		};
+
+		let uplot0 = new uPlot(opts, data, document.getElementById("period"));
+	});
+	
+	fetch("https://geoport.usgs.esipfed.org/erddap/tabledap/waves-guam.json?time%2CsignificantWaveHeight%2CmeanPeriod&time%3E=now-7days").then(r => r.json()).then(dataraw => {
+
+		times = [];
+		Hs = [];
+		Tp = [];
+		dataraw.table.rows.forEach(function(d, i) {
+			times.push(new Date(d[0]).getTime()/1000);
+			Hs.push(d[1]);
+// 			Tp.push(d[2]);
+		});
+		let data = [times, Hs, Tp];
+		let opts = {
+			title: "Significant wave height",
 			tzDate:  ts => uPlot.tzDate(new Date(ts * 1e3), 'Pacific/Guam'),
 			id: "chart3",
 			class: "my-chart",
@@ -125,12 +129,12 @@
 					scale: "m",
 					stroke: "blue",
 				},
-				{stroke: "red",
-// 				paths: u => null,
-// 				points: {show: true},
-				value: (self, rawValue) => rawValue + " s",
-				scale: "s",
-				label:'Mean wave period'}
+				// {stroke: "red",
+// // 				paths: u => null,
+// // 				points: {show: true},
+// 				value: (self, rawValue) => rawValue + " s",
+// 				scale: "s",
+// 				label:'Mean wave period'}
 			],
 			axes: [
 				{},
@@ -143,8 +147,8 @@
 					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(1) + "%"),
 				},
 				{
-					scale: "s",
-					label: "Mean wave period [s]",
+					scale: "m",
+					label: "Significant wave height [s]",
 					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(2) + "MB"),
 					side: 1,
 					grid: {show: false},
@@ -155,18 +159,19 @@
 		let uplot1 = new uPlot(opts, data, document.getElementById("waves"));
 	});
 	
-	fetch("https://geoport.usgs.esipfed.org/erddap/tabledap/waves-guam.json?time%2Crbrcoda3_meantemperature_20bits_upper&time%3E=now-7days").then(r => r.json()).then(dataraw => {
+	fetch("https://geoport.usgs.esipfed.org/erddap/tabledap/waves-guam.json?time%2CmeanDirection%2CpeakDirection&time%3E=now-7days").then(r => r.json()).then(dataraw => {
 
 		times = [];
 		Hs = [];
 		Tp = [];
 		dataraw.table.rows.forEach(function(d, i) {
 			times.push(new Date(d[0]).getTime()/1000);
-			Hs.push(d[1]);
+			Hs.push((d[1] + 180) % 360 );
+			Tp.push((d[2] + 180) % 360 );
 		});
-		let data = [times, Hs];
+		let data = [times, Hs, Tp];
 		let opts = {
-			title: "Near-surface water temperature",
+			title: "Wave direction (to)",
 			tzDate:  ts => uPlot.tzDate(new Date(ts * 1e3), 'Pacific/Guam'),
 			id: "chart3",
 			class: "my-chart",
@@ -177,35 +182,42 @@
 				{},
 				{
 					show: true,
-					points: {show: true},
-					label: "Water temperature",
-					value: (self, rawValue) => rawValue + " C",
-					scale: "C",
+					// spanGaps: false,
+					label: "Mean direction (to)",
+					value: (self, rawValue) => rawValue.toFixed(1) + " deg",
+					scale: "deg",
 					stroke: "blue",
 				},
-				
+				{stroke: "red",
+// 				paths: u => null,
+// 				points: {show: true},
+				value: (self, rawValue) => rawValue.toFixed(1) + " deg",
+				scale: "deg",
+				label:'Peak direction (to)'}
 			],
 			axes: [
 				{},
 				{
-					scale: "C",
-					label: "Temperature [C]",
-					// range: [0, 360],
+					scale: "deg",
+					label: "Mean direction [deg]",
+// 					range: [0, 360],
 					side: 3,
-					grid: {show: false}
+					grid: {show: false},
+					
 					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(1) + "%"),
 				},
-// 				{
-// 					scale: "s",
-// 					label: "Mean wave period [s]",
-// 					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(2) + "MB"),
-// 					side: 1,
-// 					grid: {show: false},
-// 				},
+				{
+					scale: "deg",
+					label: "Peak direction [deg]",
+					
+					// values: (self, ticks) => ticks.map(rawValue => rawValue.toFixed(2) + "MB"),
+					side: 1,
+					grid: {show: false},
+				},
 			],
 		};
 
-		let uplot2 = new uPlot(opts, data, document.getElementById("wl"));
+		let uplot2 = new uPlot(opts, data, document.getElementById("direction"));
 	});
 	</script>
 	<h1>Guam coastal imagery and waves</h1>
@@ -221,8 +233,8 @@
     <p><img src="guam_basemap.png" width=450></p>
     <hr>
     <div id="waves"></div>
-    <div id="temperature"></div>
-    <div id="wl"></div>
+    <div id="period"></div>
+    <div id="direction"></div>
     
 	<hr>
     <div id="images">
